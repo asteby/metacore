@@ -42,12 +42,11 @@ section 4.
 | --------- | ---------------- |
 | Go        | 1.25+            |
 | Postgres  | 14+              |
-| GitHub access | `GOPRIVATE="github.com/asteby/*"` configured (see [`consumer-guide.md`](consumer-guide#2-private-module-access)) |
 
-```bash
-go env -w GOPRIVATE="github.com/asteby/*"
-git config --global url."git@github.com:".insteadOf "https://github.com/"
-```
+The kernel is public, so a plain `go get github.com/asteby/metacore-kernel`
+just works. If your host depends on private Go modules of your own, see
+[`consumer-guide.md`](consumer-guide#2-private-module-access) for the
+`GOPRIVATE` setup.
 
 ## 1. New Go module
 

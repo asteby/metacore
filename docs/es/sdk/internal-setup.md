@@ -17,7 +17,7 @@ Este documento es para **contributors al SDK en sí**. Si solo consumís package
 - **Node.js 20+** y **pnpm 10+** (el campo `packageManager` raíz es la autoridad; `corepack enable` va a instalar el pnpm correspondiente).
 - **Go 1.22+** para el CLI (`cli/`) y helpers Go (`pkg/`).
 - **TinyGo 0.31+** solo si rebuildeás los ejemplos WASM.
-- **GitHub PAT** con scope `repo` (read) si también trabajás contra módulos privados del kernel — ver [Configuración GOPRIVATE](#configuración-goprivate).
+- **GitHub PAT** con scope `repo` (read) solo si trabajás contra algún módulo Go privado en tu fork — ver [Configuración GOPRIVATE](#configuración-goprivate).
 
 ## Clonar e instalar
 
@@ -94,10 +94,10 @@ pnpm --filter @asteby/metacore-runtime-react build
 
 ## Configuración GOPRIVATE
 
-Si tu trabajo toca módulos que dependen de repos privados (el kernel, hub-server), configurá Go para traerlos a través de tu PAT:
+El kernel y el SDK de Metacore son ambos públicos, así que esto solo es necesario si tu fork o aplicación host downstream depende de un módulo Go privado tuyo. Configurá Go para traerlo a través de tu PAT:
 
 ```bash
-export GOPRIVATE=github.com/asteby/metacore-kernel,github.com/asteby/hub-server
+export GOPRIVATE=github.com/your-org/your-private-module
 
 cat >> ~/.netrc <<EOF
 machine github.com
@@ -107,12 +107,11 @@ EOF
 chmod 600 ~/.netrc
 ```
 
-El PAT debe tener scope `repo` (read) para los repositorios privados.
+El PAT debe tener scope `repo` (read) para los repositorios privados que listes.
 
 ## Secrets de CI
 
-Los siguientes secrets están configurados a nivel de organización GitHub para que CI clone módulos privados y publique:
+Los siguientes secrets están configurados a nivel de organización GitHub para que CI publique:
 
-- `METACORE_READ_TOKEN` — PAT con acceso de read a repos privados.
 - `NPM_TOKEN` — token de publish npm para el scope `@asteby` (Granular Access Token con "Bypass 2FA" habilitado — ver [`publishing.md`](./publishing)).
 - `GHCR_TOKEN` — token con scope `write:packages` para ghcr.io.

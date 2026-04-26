@@ -19,7 +19,7 @@ metacore keygen --out dev
   manager or a hardware token (`ssh-keygen -t ed25519 -N ''` + a wrapper)
   for production signing identities.
 - `dev.pub` is the public key. Register it on
-  `hub.asteby.com/developers → API keys`. You may register multiple public
+  `<your-hub-url>/developers → API keys`. You may register multiple public
   keys per developer account (dev, CI, release engineer).
 
 The marketplace verifies every upload against the set of registered public
@@ -47,7 +47,7 @@ The signature is an Ed25519 signature over SHA-256 of the bundle bytes.
 ## 3. Upload
 
 ```bash
-curl -X POST https://hub.asteby.com/v1/addons \
+curl -X POST https://your-hub.example.com/v1/addons \
   -H "X-Developer-Key: $METACORE_DEV_KEY" \
   -F bundle=@mi-addon-1.0.0.tar.gz \
   -F signature=@mi-addon-1.0.0.tar.gz.sig
@@ -76,11 +76,11 @@ pending
    │
    ├──► approved           ── marketplace-signed block added to manifest.signature
    │
-   └──► published          ── live at hub.asteby.com/addons/<key>
+   └──► published          ── live at <your-hub-url>/addons/<key>
 ```
 
 Typical review SLA is 3 business days. Status changes trigger email to the
-developer account and appear on `hub.asteby.com/developers/submissions`.
+developer account and appear on `<your-hub-url>/developers/submissions`.
 
 ### What the review checks
 
@@ -141,7 +141,7 @@ Slow rejections (human review):
 For staging environments, upload with `?channel=beta`:
 
 ```bash
-curl -X POST "https://hub.asteby.com/v1/addons?channel=beta" ...
+curl -X POST "https://your-hub.example.com/v1/addons?channel=beta" ...
 ```
 
 Beta bundles are visible only to organizations that opt in from the

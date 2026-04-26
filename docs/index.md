@@ -112,6 +112,18 @@ Drop the kernel into a Gin/Chi server, get dynamic CRUD, permissions and WebSock
 A Vite + React frontend over a Go backend that mounts the kernel. The SDK provides every primitive.
 </a>
 
+### Or jump straight into the deep docs
+
+<a class="role-card" href="/metacore/sdk/">
+<strong>SDK reference →</strong>
+The 16 npm packages, the manifest spec, dynamic UI, the cookbook, capabilities, publishing.
+</a>
+
+<a class="role-card" href="/metacore/kernel/">
+<strong>Kernel reference →</strong>
+Embedding the runtime, the dynamic CRUD framework, the HTTP API, permissions, and contributor setup.
+</a>
+
 ## What's open
 
 Both Metacore repositories are public and Apache-2.0:

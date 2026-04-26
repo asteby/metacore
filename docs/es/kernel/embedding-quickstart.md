@@ -42,12 +42,11 @@ sección 4.
 | --------- | ---------------- |
 | Go        | 1.25+            |
 | Postgres  | 14+              |
-| Acceso a GitHub | `GOPRIVATE="github.com/asteby/*"` configurado (ver [`consumer-guide.md`](consumer-guide#2-acceso-a-módulos-privados)) |
 
-```bash
-go env -w GOPRIVATE="github.com/asteby/*"
-git config --global url."git@github.com:".insteadOf "https://github.com/"
-```
+El kernel es público, así que un simple `go get github.com/asteby/metacore-kernel`
+funciona sin más. Si tu host depende de módulos Go privados tuyos, ver
+[`consumer-guide.md`](consumer-guide#2-acceso-a-módulos-privados) para el
+setup de `GOPRIVATE`.
 
 ## 1. Nuevo módulo Go
 

@@ -62,20 +62,21 @@ tidy` before you commit, so production builds resolve to a tagged version.
 
 ## 2. Private-module access
 
-The kernel lives in a private repository. Configure each developer machine
-and CI runner once.
+The Metacore kernel itself is public — no special configuration is needed
+to `go get github.com/asteby/metacore-kernel`. This section only applies if
+your host application also depends on private Go modules of your own.
 
 ### Environment
 
 ```bash
-go env -w GOPRIVATE="github.com/asteby/*"
+go env -w GOPRIVATE="github.com/your-org/*"
 go env -w GOSUMDB=off                            # private modules skip sumdb
 ```
 
 Per-shell equivalent:
 
 ```bash
-export GOPRIVATE="github.com/asteby/*"
+export GOPRIVATE="github.com/your-org/*"
 export GOSUMDB=off
 ```
 
@@ -100,8 +101,9 @@ EOF
 chmod 600 ~/.netrc
 ```
 
-In GitHub Actions for consumer repositories, mint a fine-grained token with
-read access to `asteby/metacore-kernel` and bind it before `go mod download`:
+In GitHub Actions for consumer repositories that need to fetch private
+modules of your own, mint a fine-grained token with read access to those
+repositories and bind it before `go mod download`:
 
 ```yaml
 - name: Configure netrc
@@ -109,7 +111,7 @@ read access to `asteby/metacore-kernel` and bind it before `go mod download`:
     cat > ~/.netrc <<EOF
     machine github.com
       login x-access-token
-      password ${{ secrets.METACORE_READ_TOKEN }}
+      password ${{ secrets.PRIVATE_MODULES_READ_TOKEN }}
     EOF
     chmod 600 ~/.netrc
 ```

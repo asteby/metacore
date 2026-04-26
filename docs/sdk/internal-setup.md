@@ -17,7 +17,7 @@ This document is for **contributors to the SDK itself**. If you only consume `@a
 - **Node.js 20+** and **pnpm 10+** (the root `packageManager` field is authoritative; `corepack enable` will install the matching pnpm).
 - **Go 1.22+** for the CLI (`cli/`) and Go helpers (`pkg/`).
 - **TinyGo 0.31+** only if you rebuild the WASM examples.
-- **GitHub PAT** with `repo` (read) scope if you also work against private kernel modules — see [GOPRIVATE setup](#goprivate-setup).
+- **GitHub PAT** with `repo` (read) scope only if you also work against any private Go modules in your fork — see [GOPRIVATE setup](#goprivate-setup).
 
 ## Clone and install
 
@@ -94,10 +94,10 @@ pnpm --filter @asteby/metacore-runtime-react build
 
 ## GOPRIVATE setup
 
-If your work touches modules that depend on private repos (the kernel, hub-server), configure Go to fetch them through your PAT:
+The Metacore kernel and SDK are both public, so you only need this if your fork or downstream host application depends on a private Go module of your own. Configure Go to fetch it through your PAT:
 
 ```bash
-export GOPRIVATE=github.com/asteby/metacore-kernel,github.com/asteby/hub-server
+export GOPRIVATE=github.com/your-org/your-private-module
 
 cat >> ~/.netrc <<EOF
 machine github.com
@@ -107,12 +107,11 @@ EOF
 chmod 600 ~/.netrc
 ```
 
-The PAT must have `repo` (read) scope for the private repositories.
+The PAT must have `repo` (read) scope for the private repositories you list.
 
 ## CI secrets
 
-The following secrets are configured at the GitHub organization level for CI to clone private modules and publish:
+The following secrets are configured at the GitHub organization level for CI to publish:
 
-- `METACORE_READ_TOKEN` — PAT with read access to private repos.
 - `NPM_TOKEN` — npm publish token for `@asteby` scope (Granular Access Token with "Bypass 2FA" enabled — see [`publishing.md`](./publishing)).
 - `GHCR_TOKEN` — token with `write:packages` scope for ghcr.io.

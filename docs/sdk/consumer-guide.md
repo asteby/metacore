@@ -1,6 +1,6 @@
 # Consumer Guide — integrating `@asteby/metacore-*`
 
-Guide for apps that consume the Metacore SDK (Ops, Link, internal panels, third-party hosts). It covers installation, the mixed npm/`file:` development pattern, Vite + Tailwind 4 setup, deployment, and getting automatic updates via Renovate.
+Guide for apps that consume the Metacore SDK — host applications such as operator panels, marketplace + admin surfaces, customer portals, internal tools, or any other Vite + React frontend. It covers installation, the mixed npm/`file:` development pattern, Vite + Tailwind 4 setup, deployment, and getting automatic updates via Renovate.
 
 ## Table of contents
 
@@ -241,7 +241,7 @@ Turbo builds the upstream SDK packages first, then the app.
 - run: pnpm build
 ```
 
-The Asteby `link` repo's GitHub Actions workflow is a working reference for this pattern.
+A host repo's GitHub Actions workflow that builds the SDK before installing the app is a working reference for this pattern.
 
 ## 8. Renovate template
 

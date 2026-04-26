@@ -29,14 +29,14 @@ Metacore is one platform spread across a small set of public repositories. This 
                                ▼
               ┌──────────────────────────────────────┐
               │             Hosts                    │
-              │  • link  (operator panel)            │
-              │  • ops   (marketplace + admin)       │
-              │  • your-host  (anything you build)   │
+              │  • your host application             │
+              │    (operator panel, portal, admin,   │
+              │     embedded settings, anything)     │
               └──────────────────────────────────────┘
                                ▼
               ┌──────────────────────────────────────┐
               │       Addons (.mcbundle)             │
-              │  • first-party (built by Asteby)     │
+              │  • first-party (built by you)        │
               │  • third-party (built by anyone)     │
               └──────────────────────────────────────┘
 ```
@@ -61,13 +61,9 @@ A working Metacore app is a host binary that imports the kernel, paired with a h
 
 ## Hosts
 
-Hosts are the products built on top of the kernel + SDK. They have their own repositories (private, for now) but use only public APIs:
+Hosts are the products built on top of the kernel + SDK using only public APIs. The framework doesn't ship a host; you build one that fits your product. Common shapes include operator panels, marketplace + admin surfaces, customer-facing portals, embedded admin sections, and per-vertical UX layers.
 
-- **link** — operator panel: how internal teams use installed addons day-to-day.
-- **ops** — marketplace + admin: discovery, install, billing, audit.
-- **your-host** — anything you build with [Build a host](/getting-started/build-a-host).
-
-See [Hosts](/ecosystem/hosts) for more.
+See [Hosts](/ecosystem/hosts) and [Build a host](/getting-started/build-a-host) for the recipe.
 
 ## Versioning
 
@@ -77,4 +73,4 @@ The kernel and the SDK release independently. A host pins both. When a kernel fe
 
 - [Kernel](/ecosystem/kernel) — what it does, with a link to its dedicated docs site.
 - [SDK](/ecosystem/sdk) — what it provides, with a link to its dedicated docs site.
-- [Hosts](/ecosystem/hosts) — link, ops, and how to build your own.
+- [Hosts](/ecosystem/hosts) — host shapes and how to build one.

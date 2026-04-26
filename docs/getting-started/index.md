@@ -18,7 +18,7 @@ You have a Go service and want to add modular CRUD without writing the plumbing.
 
 <a class="role-card" href="/metacore/getting-started/build-a-host">
 <strong>Build a host →</strong>
-You want a product like link or ops — a frontend that picks up any installed addon and renders it. Vite + React + the SDK on top, kernel on the bottom.
+You want a host application — a frontend that picks up any installed addon and renders it. Vite + React + the SDK on top, kernel on the bottom.
 </a>
 
 ## Not sure?

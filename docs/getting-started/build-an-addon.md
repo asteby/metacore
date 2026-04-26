@@ -109,7 +109,7 @@ No restart. The host is live with the new addon.
 
 ## 5. See the CRUD UI
 
-Open the host's frontend (link, ops, your-app). The addon shows up in the navigation; clicking it renders a `<DynamicTable>` against `/api/addons/tickets/tickets`:
+Open the host's frontend. The addon shows up in the navigation; clicking it renders a `<DynamicTable>` against `/api/addons/tickets/tickets`:
 
 ```tsx
 import { DynamicTable } from '@asteby/metacore-runtime-react'

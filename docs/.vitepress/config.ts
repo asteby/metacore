@@ -27,6 +27,33 @@ export default defineConfig({
     nav: [
       { text: 'Why', link: '/why' },
       { text: 'Get Started', link: '/getting-started/' },
+      {
+        text: 'SDK',
+        items: [
+          { text: 'Overview', link: '/sdk/' },
+          { text: 'Quickstart', link: '/sdk/quickstart' },
+          { text: 'Dynamic UI', link: '/sdk/dynamic-ui' },
+          { text: 'Cookbook', link: '/sdk/addon-cookbook' },
+          { text: 'Manifest Spec', link: '/sdk/manifest-spec' },
+          { text: 'Capabilities', link: '/sdk/capabilities' },
+          { text: 'Consumer Guide', link: '/sdk/consumer-guide' },
+          { text: 'Publishing', link: '/sdk/publishing' },
+          { text: 'WASM ABI', link: '/sdk/wasm-abi' },
+        ],
+      },
+      {
+        text: 'Kernel',
+        items: [
+          { text: 'Overview', link: '/kernel/' },
+          { text: 'Embedding Quickstart', link: '/kernel/embedding-quickstart' },
+          { text: 'Dynamic System', link: '/kernel/dynamic-system' },
+          { text: 'Dynamic API', link: '/kernel/dynamic-api' },
+          { text: 'Permissions', link: '/kernel/permissions' },
+          { text: 'Consumer Guide', link: '/kernel/consumer-guide' },
+          { text: 'Dev Setup', link: '/kernel/dev-setup' },
+          { text: 'Release', link: '/kernel/release' },
+        ],
+      },
       { text: 'Architecture', link: '/architecture' },
       {
         text: 'Concepts',
@@ -41,22 +68,10 @@ export default defineConfig({
       {
         text: 'Ecosystem',
         items: [
-          {
-            text: 'Portal',
-            items: [
-              { text: 'Overview', link: '/ecosystem/' },
-              { text: 'Kernel', link: '/ecosystem/kernel' },
-              { text: 'SDK', link: '/ecosystem/sdk' },
-              { text: 'Hosts', link: '/ecosystem/hosts' },
-            ],
-          },
-          {
-            text: 'Deep docs',
-            items: [
-              { text: 'SDK Docs ↗', link: 'https://asteby.github.io/metacore-sdk/' },
-              { text: 'Kernel Docs ↗', link: 'https://asteby.github.io/metacore-kernel/' },
-            ],
-          },
+          { text: 'Overview', link: '/ecosystem/' },
+          { text: 'Kernel', link: '/kernel/' },
+          { text: 'SDK', link: '/sdk/' },
+          { text: 'Hosts', link: '/ecosystem/hosts' },
         ],
       },
     ],
@@ -93,6 +108,39 @@ export default defineConfig({
             { text: 'Kernel', link: '/ecosystem/kernel' },
             { text: 'SDK', link: '/ecosystem/sdk' },
             { text: 'Hosts', link: '/ecosystem/hosts' },
+          ],
+        },
+      ],
+      '/sdk/': [
+        {
+          text: 'SDK',
+          items: [
+            { text: 'Overview', link: '/sdk/' },
+            { text: 'Quickstart', link: '/sdk/quickstart' },
+            { text: 'Dynamic UI', link: '/sdk/dynamic-ui' },
+            { text: 'Cookbook', link: '/sdk/addon-cookbook' },
+            { text: 'Manifest Spec', link: '/sdk/manifest-spec' },
+            { text: 'Capabilities', link: '/sdk/capabilities' },
+            { text: 'Consumer Guide', link: '/sdk/consumer-guide' },
+            { text: 'Publishing', link: '/sdk/publishing' },
+            { text: 'Internal Setup', link: '/sdk/internal-setup' },
+            { text: 'Addon Publishing', link: '/sdk/addon-publishing' },
+            { text: 'WASM ABI', link: '/sdk/wasm-abi' },
+          ],
+        },
+      ],
+      '/kernel/': [
+        {
+          text: 'Kernel',
+          items: [
+            { text: 'Overview', link: '/kernel/' },
+            { text: 'Embedding Quickstart', link: '/kernel/embedding-quickstart' },
+            { text: 'Dynamic System', link: '/kernel/dynamic-system' },
+            { text: 'Dynamic API', link: '/kernel/dynamic-api' },
+            { text: 'Permissions', link: '/kernel/permissions' },
+            { text: 'Consumer Guide', link: '/kernel/consumer-guide' },
+            { text: 'Dev Setup', link: '/kernel/dev-setup' },
+            { text: 'Release', link: '/kernel/release' },
           ],
         },
       ],

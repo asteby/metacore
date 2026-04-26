@@ -20,7 +20,7 @@ End-to-end guide for releasing packages from this monorepo and propagating updat
 3. Commit the generated `.changeset/*.md` alongside your code in a PR.
 4. When your PR merges to `main`, the **Release npm packages** workflow opens (or updates) a `chore(release): version packages` PR.
 5. Merging that "Version Packages" PR bumps versions, regenerates changelogs, and triggers `changeset publish` to npm under the `@asteby` scope.
-6. Renovate bots in consumer apps (Ops, Link, internal panels) pick up the new versions and open PRs. Patch / minor bumps auto-merge; majors await human review.
+6. Renovate bots in consumer host apps pick up the new versions and open PRs. Patch / minor bumps auto-merge; majors await human review.
 
 ## Prerequisites
 

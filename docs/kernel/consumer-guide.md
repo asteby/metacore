@@ -1,11 +1,11 @@
 # Consumer Guide
 
 This guide is for engineers integrating `metacore-kernel` into a Go backend.
-It assumes you are building one of the host applications in the Asteby
-ecosystem (`ops`, `link`, `pilot`, `doctores.lat`, `p2p`, `visor`,
-`operador360`) or a comparable embedder. Frontend addon authors should read
-the [`metacore-sdk`](https://github.com/asteby/metacore-sdk) documentation
-instead — this kernel only executes what the SDK produces.
+It assumes you are building a host application — an operator panel, a
+marketplace + admin surface, a customer portal, an embedded admin section,
+or any other Go service that wants to embed the kernel. Frontend addon
+authors should read the [`metacore-sdk`](https://github.com/asteby/metacore-sdk)
+documentation instead — this kernel only executes what the SDK produces.
 
 ---
 

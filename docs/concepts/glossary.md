@@ -38,7 +38,7 @@ Short definitions of every term that recurs in the docs. Links go to the page th
 
 ## H
 
-**Host.** A product that embeds the kernel and exposes installed addons to users. Has a backend (Go) and a frontend (Vite + React + SDK). The two reference hosts are **link** (operator panel) and **ops** (marketplace + admin). See [Hosts](/ecosystem/hosts).
+**Host.** A product that embeds the kernel and exposes installed addons to users. Has a backend (Go) and a frontend (Vite + React + SDK). Hosts can take many shapes — operator panels, customer-facing portals, marketplace + admin surfaces, embedded settings inside an existing product. See [Hosts](/ecosystem/hosts).
 
 **Host.App / host.Host.** Helper types in the kernel that wrap config, DI, routing, and lifecycle for a typical host backend.
 

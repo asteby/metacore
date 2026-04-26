@@ -84,7 +84,7 @@ go build -o bin/metacore ./cli
 
 ## Linking against a consumer app
 
-When iterating on a package in tandem with a consumer (Ops, Link, an internal panel), use a `file:` reference from the consumer to this repo. See [`consumer-guide.md` § Mixed npm + `file:` pattern](./consumer-guide#4-mixed-npm--file-pattern-for-local-development).
+When iterating on a package in tandem with a consumer host application, use a `file:` reference from the consumer to this repo. See [`consumer-guide.md` § Mixed npm + `file:` pattern](./consumer-guide#4-mixed-npm--file-pattern-for-local-development).
 
 Build the package whenever you change it — pnpm symlinks the `dist/`, so the consumer picks up the new bundle on its next dev-server restart (or HMR for ESM):
 

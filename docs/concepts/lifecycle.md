@@ -95,7 +95,7 @@ The hook runs **before** any schema teardown, so it has full access to the data.
 
 ## What hosts see
 
-The host's installer API exposes each step's outcome — the migration log, hook output, dependency tree at install time, the diff plan at upgrade time. The reference admin UI in **ops** renders this as a timeline; custom hosts can do the same with `GET /api/installs/:id`.
+The host's installer API exposes each step's outcome — the migration log, hook output, dependency tree at install time, the diff plan at upgrade time. A host admin UI typically renders this as a timeline using `GET /api/installs/:id`.
 
 ## Versioning
 

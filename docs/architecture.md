@@ -8,7 +8,7 @@ Metacore is four layers stacked on top of each other. Each layer has one job and
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Hosts (link, ops, your-app)                the surface  │
+│  Hosts (your application)                   the surface  │
 │   └─ React + Vite + @asteby/metacore-runtime-react       │
 ├──────────────────────────────────────────────────────────┤
 │  Host backends (Go)                          the embed   │
@@ -55,16 +55,11 @@ The kernel doesn't care what HTTP router you use — `host.App` lets you mount i
 
 A **host frontend** is a Vite + React app that uses `@asteby/metacore-runtime-react` to render addon UIs. The runtime fetches metadata from the kernel, mounts the right components, and exposes hooks for everything else: queries, mutations, real-time, navigation, slot composition.
 
-The two production hosts today are:
-
-- **link** — the operator panel; how internal teams use installed addons.
-- **ops** — the marketplace and admin; how addons are discovered, installed, and managed.
-
-Both consume the same SDK; neither has any custom logic for any individual addon.
+A host can take many shapes: an internal operator panel, a customer-facing portal, a marketplace and admin surface, an embedded settings area inside an existing product, a vertical-specific UX. They all consume the same SDK; none of them has any custom logic for any individual addon.
 
 ## Data flow: declare → CRUD UI
 
-A user opens the Tickets page in **link**. Here's what happens:
+A user opens the Tickets page in a host frontend. Here's what happens:
 
 ```
 manifest.json                      ┌──────────────────┐
@@ -83,7 +78,7 @@ manifest.json                      ┌──────────────
             │
             ▼
    ┌──────────────────────┐
-   │  link frontend       │
+   │  host frontend       │
    │  <DynamicTable>      │
    │   reads meta + rows  │
    │   renders columns,   │
@@ -132,7 +127,7 @@ asteby/metacore-sdk                    asteby/metacore-kernel
                                                 │
    ┌────────────────────────────────────────────┴────────┐
    ▼                                                     ▼
- hosts (link, ops, third-parties)                 host backends
+ host frontends                                   host backends
  install via pnpm,                                go get -u,
  pickup new SDK in Vite                           rebuild binary
 ```

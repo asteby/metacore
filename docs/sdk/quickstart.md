@@ -35,7 +35,7 @@ No glue code. No controllers. No forms. The contract is the manifest.
 | pnpm 9+ | Workspace package manager. |
 | Go 1.22+ | Required if you build the addon CLI from source or compile a WASM backend. |
 | TinyGo 0.31+ | Only if your addon ships a WASM backend (optional for this guide). |
-| A running Metacore host | Asteby Ops, Asteby Link, or a fresh app from `npx create-metacore-app`. |
+| A running Metacore host | Any host application embedding the kernel, or a fresh app from `npx create-metacore-app`. |
 
 If you don't have a host yet, scaffold one in 30 seconds:
 

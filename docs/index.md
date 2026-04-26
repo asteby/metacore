@@ -45,7 +45,7 @@ features:
 
 Metacore is a runtime + SDK for building modular, multi-tenant business applications out of small declarative addons. The **kernel** is a Go library you embed in your app: it owns the database schema, the REST surface, permissions, lifecycle, and a WebSocket hub. The **SDK** is a set of npm packages and a CLI: it lets you describe an addon — its tables, capabilities and UI — in a single `manifest.json`, and renders the result as a typed React experience inside any host.
 
-Together, they turn a manifest into a working CRUD app. Hosts like [link](https://github.com/asteby) (the operator panel) and [ops](https://github.com/asteby) (the marketplace) pick that up automatically — and so does any app you build on the same primitives.
+Together, they turn a manifest into a working CRUD app. Any host you build on the same primitives — an operator panel, a customer portal, an embedded admin — picks that up automatically.
 
 ## The four-line pitch
 
@@ -108,7 +108,7 @@ Drop the kernel into a Gin/Chi server, get dynamic CRUD, permissions and WebSock
 </a>
 
 <a class="role-card" href="/metacore/getting-started/build-a-host">
-<strong>I'm building a host like link or ops →</strong>
+<strong>I'm building a host →</strong>
 A Vite + React frontend over a Go backend that mounts the kernel. The SDK provides every primitive.
 </a>
 

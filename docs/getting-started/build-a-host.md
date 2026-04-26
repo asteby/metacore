@@ -1,6 +1,6 @@
 # Build a host
 
-A **host** is a product that sits on top of the kernel and exposes installed addons to users. The two reference hosts are **link** (the operator panel) and **ops** (the marketplace and admin). You can build your own — a customer-facing portal, an internal tool, an embedded admin — using the same primitives.
+A **host** is a product that sits on top of the kernel and exposes installed addons to users. Common shapes include an operator panel, a marketplace + admin surface, a customer-facing portal, an internal tool, or an embedded admin section inside an existing product. You build whichever fits your product — they all use the same primitives.
 
 This page is a recipe. The deep references for each layer live in the SDK and kernel docs.
 
@@ -175,18 +175,21 @@ The kernel uses that identity for every CRUD call: capability checks, per-user p
 - Health checks (`/health`) and readiness probes
 - Bundle directory mounted from persistent storage
 
-## Reference hosts
+## Common host shapes
 
-| Host | Repo | What it does |
-|---|---|---|
-| **link** | private | Operator panel — how internal teams use installed addons |
-| **ops** | private | Marketplace + admin — discovery, install, billing, audit |
+| Shape | What it does |
+|---|---|
+| **Operator panel** | How internal teams use installed addons day-to-day — lists, forms, dashboards, action buttons. |
+| **Marketplace + admin** | Discovery, install, upgrade, billing, audit, configuration of addons. |
+| **Customer-facing portal** | End-user surface, often with marketing copy and a more constrained layout than an operator panel. |
+| **Embedded admin** | A "settings" or "admin" section in an existing SaaS that picks up addons without per-section code. |
+| **Per-vertical UX** | A layout tailored to a domain — healthcare, fintech, logistics, etc. |
 
-Both are pure SDK consumers with their own auth + layout. Neither has any per-addon code.
+Whichever shape you build, the host is a pure SDK consumer with its own auth + layout. It has no per-addon code.
 
 ## Related
 
 - [Embed the runtime](/getting-started/embed-the-runtime) — backend half in detail.
 - [Build an addon](/getting-started/build-an-addon) — what your host will run.
-- [Hosts](/ecosystem/hosts) — the official hosts and their role.
+- [Hosts](/ecosystem/hosts) — host shapes and patterns.
 - [SDK docs ↗](https://asteby.github.io/metacore-sdk/) — every component, every hook.

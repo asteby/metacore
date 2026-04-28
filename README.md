@@ -6,6 +6,7 @@ This repo holds the source for the portal site at **https://asteby.github.io/met
 
 - [`asteby/metacore-kernel`](https://github.com/asteby/metacore-kernel) — the Go runtime that executes addons (WASM sandbox, dynamic CRUD, permissions, lifecycle, websockets).
 - [`asteby/metacore-sdk`](https://github.com/asteby/metacore-sdk) — the npm packages and CLI used to declare addons and render their UI.
+- [`metacore-sdk/examples/fullstack-starter`](https://github.com/asteby/metacore-sdk/tree/main/examples/fullstack-starter) — the official fullstack starter (Go + React) that wires kernel and SDK together. Spin up your own product with `npm create @asteby/metacore-app my-app -- --example fullstack-starter`.
 
 ## Repo layout
 

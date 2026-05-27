@@ -18,7 +18,7 @@ Metacore son cuatro capas apiladas una sobre la otra. Cada capa tiene un trabajo
 │   └─ dynamic CRUD · permissions · ws · wasm · lifecycle  │
 ├──────────────────────────────────────────────────────────┤
 │  metacore-sdk + addons                       the contract│
-│   └─ manifest.json · runtime-react · CLI · 16 packages   │
+│   └─ manifest.json (v3) · runtime-react · CLI · packages │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -26,18 +26,18 @@ Metacore son cuatro capas apiladas una sobre la otra. Cada capa tiene un trabajo
 
 La capa de abajo es **qué es un addon**. El SDK define:
 
-- El **schema del manifest** — la forma de `manifest.json`, la fuente de verdad del addon.
+- El **schema del manifest** — la forma de `manifest.json`, la fuente de verdad del addon. El contrato actual es el **Module Contract v3** (`apiVersion: asteby.com/v3`): `metadata`, `capabilities`, `models`, `contributions`, `extension_points`, `tenancy`, `rbac`, `settings`, `lifecycle`. También cubre unidades que no son addons — `kind: Preset` (un bundle vertical de addons), `Theme` y `ConnectorPack`.
 - El **formato del bundle** — `.mcbundle`, un tarball firmado con el manifest, módulo WASM opcional, assets y código frontend.
-- El **runtime de frontend** — `@asteby/metacore-runtime-react` más 15 packages hermanos (formularios, tablas, diálogos, navegación, charts, etc.) que leen la misma metadata que expone el kernel y renderizan UI tipada sin código a medida.
-- La **CLI** — `metacore-sdk` hace scaffold, build, firma y publica addons.
+- El **runtime de frontend** — `@asteby/metacore-runtime-react` más packages hermanos (auth, theme, ui, i18n, app-providers, websocket, notifications, billing, marketplace, …) que leen la misma metadata que expone el kernel y renderizan UI tipada sin código a medida.
+- La **CLI** — la herramienta Go `metacore` (`go install github.com/asteby/metacore-sdk/cli@latest`) hace scaffold, validate, build, firma y publica addons.
 
 Un addon es solo un directorio con un manifest, código Go opcional (compilado a WASM) y código React opcional que se registra como un slot. Es la única capa que la mayoría de los constructores de apps va a tocar.
 
 ### 2. El runtime — `metacore-kernel`
 
-El kernel es una librería Go que embebés en cualquier server HTTP (Gin, Chi, Echo, stdlib). Posee:
+El kernel es una librería Go que embebés en un server [Fiber](https://gofiber.io/). Posee:
 
-- **CRUD dinámico.** Un store genérico lee `tables[]` del manifest y sirve list / get / create / update / delete sobre REST. Paginación, sort y filter vienen gratis.
+- **CRUD dinámico.** Un store genérico lee `models[]` del manifest y sirve list / get / create / update / delete sobre REST. Paginación, sort, filter, filtros por relación, group-by y agregaciones vienen gratis.
 - **Permisos.** Dos capas: chequeos de capability (¿el addon tiene `db:write` en esta tabla?) y permisos por usuario sobre recursos (¿este usuario tiene `tickets.create`?). Ambos aplicados en cada llamada.
 - **Lifecycle.** Install, upgrade, uninstall — migraciones de schema, ejecución de hooks, registro de metadata. Hot, sin reinicio.
 - **Sandbox WASM.** Los addons que corren código lo hacen dentro de [wazero](https://wazero.io/). El kernel expone un ABI chico y auditado; el addon no puede ver la memoria ni el filesystem del host.
@@ -47,9 +47,9 @@ El kernel expone su propia superficie como API Go y como rutas HTTP. Los hosts e
 
 ### 3. El embed — backends de host
 
-Un **backend de host** es un binario Go que importa el kernel y agrega lo que sea específico de ese producto: auth, billing, integraciones, endpoints de dominio custom. El SDK provee helpers `host.App` y `host.Host` que manejan el boilerplate (config, DI, routing, graceful shutdown).
+Un **backend de host** es un binario Go que importa el kernel y agrega lo que sea específico de ese producto: auth, billing, integraciones, endpoints de dominio custom. El kernel provee helpers `host.App` y `host.Host` que manejan el boilerplate (config, DI, routing, graceful shutdown).
 
-Al kernel no le importa qué router HTTP uses — `host.App` te deja montarlo bajo cualquier path, junto a tus routes existentes. Un `main.go` típico tiene menos de 60 líneas.
+El kernel se monta sobre un router [Fiber](https://gofiber.io/) — `app.Mount(fiberApp.Group("/api"))` enchufa las routes de CRUD dinámico, metadata, options y métricas bajo cualquier prefijo, junto a tus routes existentes. Un `main.go` típico tiene menos de 60 líneas.
 
 ### 4. La superficie — frontends de host
 
@@ -63,7 +63,7 @@ Un usuario abre la página de Tickets en un frontend de host. Esto es lo que pas
 
 ```
 manifest.json                      ┌──────────────────┐
-  tables: tickets                  │  installer       │
+  models: Ticket                   │  installer       │
   capabilities: db:rw              │  applies DDL,    │
         │                          │  registers meta  │
         ▼                          └────────┬─────────┘
@@ -71,8 +71,8 @@ manifest.json                      ┌──────────────
                                             ▼
    ┌────────────────────────────────────────────────┐
    │  kernel                                        │
-   │  GET  /addons/tickets/_meta/columns      ──────┼──▶ schema
-   │  GET  /addons/tickets/tickets?page=1&...  ─────┼──▶ rows
+   │  GET  /api/metadata/table/tickets        ──────┼──▶ schema
+   │  GET  /api/dynamic/tickets?page=1&...     ─────┼──▶ rows
    │  enforces: capability + user permission         │
    └────────┬───────────────────────────────────────┘
             │
@@ -94,25 +94,28 @@ Vale la pena marcar algunas cosas:
 
 ## Una acción custom
 
-CRUD cubre el 80%. El 20% restante — operaciones de dominio, integraciones, side effects — viene a través de `manifest.actions[]`:
+CRUD cubre el 80%. El 20% restante — operaciones de dominio, integraciones, side effects — viene a través de `contributions.actions[]`:
 
 ```json
 {
-  "actions": [
-    {
-      "id": "close-with-reason",
-      "label": "Close ticket",
-      "target": "tickets",
-      "scope": "row",
-      "input": [
-        { "name": "reason", "type": "string", "required": true }
-      ]
-    }
-  ]
+  "contributions": {
+    "actions": [
+      {
+        "key": "close_with_reason",
+        "label": "Close ticket",
+        "target_model": "Ticket",
+        "confirm": true,
+        "fields": [
+          { "name": "reason", "type": "text", "required": true }
+        ],
+        "handler": { "type": "wasm", "function": "CloseWithReason" }
+      }
+    ]
+  }
 }
 ```
 
-El kernel monta `POST /addons/tickets/_actions/close-with-reason`. El runtime renderiza un botón en cada fila del `<DynamicTable>` y un diálogo para los inputs. El cuerpo de la acción es tuyo — código Go dentro del addon (compilado a WASM, o registrado directamente si es un addon embebido).
+El kernel monta `POST /api/dynamic/tickets/:id/actions/close_with_reason`. El runtime renderiza un botón en cada fila del `<DynamicTable>` y — como la acción declara `fields` — un modal autogenerado para los inputs (una acción también puede apuntar a un `modal` custom o a un simple prompt de `confirm`, y los inputs pueden incluir grupos repetibles de line-items). El cuerpo de la acción es tuyo — código Go dentro del addon (compilado a WASM, o registrado directamente si es un addon embebido).
 
 El patrón se repite: declarás la forma, enchufás el comportamiento, el resto es automático.
 
@@ -122,7 +125,7 @@ El patrón se repite: declarás la forma, enchufás el comportamiento, el resto 
 asteby/metacore-sdk                    asteby/metacore-kernel
   ├─ changesets PR                       ├─ feature PR
   ├─ Version Packages PR                 ├─ tag vX.Y.Z
-  ├─ npm publish (16 packages)           ├─ GoReleaser → GitHub Release
+  ├─ npm publish (todos los packages)    ├─ GoReleaser → GitHub Release
   └─ TypeDoc → Pages                     └─ pkg.go.dev refresh
                                                 │
    ┌────────────────────────────────────────────┴────────┐

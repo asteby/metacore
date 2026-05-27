@@ -4,9 +4,18 @@
 
 <h1 align="center">Referencia de <code>manifest.json</code></h1>
 
+::: warning Referencia v2 legacy
+Esta página documenta el **manifest v2 plano** (`APIVersion = "2.0.0"`). El
+contrato canónico ahora es el **Module Contract v3** (`apiVersion: asteby.com/v3`)
+— ver el [concepto de Manifest](/es/concepts/manifest) y la spec v3 del kernel.
+El kernel **dual-lee v2** por compatibilidad, así que esta referencia sigue
+aplicando a addons existentes y al output del tooling del SDK hasta que termine
+de migrar a v3.
+:::
+
 El manifest es el **contrato único** entre un addon y el kernel de metacore.
 Es consumido por Go (`kernel/manifest`) y mirroreado por el SDK TS vía
-[`tygo`](https://github.com/gzuidhof/tygo). Este documento refleja
+[`tygo`](https://github.com/gzuidhof/tygo). Este documento (legacy) refleja
 `APIVersion = "2.0.0"`.
 
 Cuando esta especificación evoluciona, `APIVersion` se bumpea y se documenta

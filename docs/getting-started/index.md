@@ -36,8 +36,8 @@ Match your problem to a path:
 ## What every path needs
 
 - **Node.js 20+** and **pnpm 10+** for the SDK and any host frontend.
-- **Go 1.22+** for the kernel and any host backend.
-- **A database.** Postgres for production, SQLite is fine for local development. The kernel handles both.
+- **Go 1.25+** for the kernel and any host backend.
+- **PostgreSQL 14+.** The supported database — the runtime's SQL gating relies on it. (SQLite is used only inside the kernel's own tests.)
 - **No SaaS account.** Metacore runs entirely on your infrastructure.
 
 ## Where the deep docs live

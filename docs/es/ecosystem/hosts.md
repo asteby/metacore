@@ -11,7 +11,7 @@ Metacore deliberadamente no publica un host. Los hosts son donde vive tu product
 Cada host, sin importar su forma, tiene las mismas tres responsabilidades:
 
 1. **Embeber el kernel.** Un binario Go importa `metacore-kernel` y monta sus rutas. Todo lo que tiene forma de CRUD — list, get, create, update, delete, metadata, tiempo real — viene del kernel.
-2. **Renderizar UIs de addons.** Un frontend Vite + React importa `@asteby/metacore-runtime-react` y usa `<DynamicTable>`, `<DynamicForm>`, `<DynamicDetail>` y `<Slot>` para renderizar cualquier addon que esté instalado.
+2. **Renderizar UIs de addons.** Un frontend Vite + React importa `@asteby/metacore-runtime-react` y usa `<DynamicTable>`, `<DynamicForm>`, `<DynamicCRUDPage>` y `<Slot>` para renderizar cualquier addon que esté instalado.
 3. **Proveer identidad, layout y marca.** Auth, shell de navegación, theming y cualquier pantalla que no sea de addon (login, settings, billing, etc.).
 
 Todo lo demás — las pantallas por addon, el schema, los chequeos de permisos, el lifecycle — lo manejan el kernel y el SDK leyendo el manifest. Un host no tiene código por addon.
@@ -66,7 +66,7 @@ Independientemente de la forma, el kernel + SDK proveen:
 - **Lifecycle.** Hot install, upgrade, uninstall — sin reinicio.
 - **Sandbox WASM.** El código de addon no confiable corre aislado.
 - **Fanout en tiempo real.** Hub WebSocket montado automáticamente.
-- **Primitivos de UI tipados.** `<DynamicTable>`, `<DynamicForm>`, `<DynamicDetail>`, `<Slot>`, más 12+ packages de soporte (forms, dialogs, navigation, charts, theme, etc.).
+- **Primitivos de UI tipados.** `<DynamicTable>`, `<DynamicForm>`, `<DynamicCRUDPage>`, `<Slot>`, más packages de soporte (UI kit, theme, i18n, auth, app-providers, websocket, notifications, etc.).
 - **Pipe de auditoría.** Stream estructurado de cada op CRUD, chequeo de capability y decisión de permiso.
 
 Un host típico tiene **400–800 líneas** de código en total: layout, navegación, pantallas de auth, más configuración. Todo lo demás viene del SDK + el kernel.

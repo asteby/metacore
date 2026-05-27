@@ -38,26 +38,30 @@ Una capability es algo que un addon promete hacer, declarado en `manifest.capabi
 
 ```json
 "capabilities": [
-  { "kind": "db:read",    "target": "tickets" },
-  { "kind": "db:write",   "target": "tickets" },
+  { "kind": "db:read",    "target": "addon_tickets.*" },
+  { "kind": "db:write",   "target": "addon_tickets.*" },
   { "kind": "event:emit", "target": "tickets.changed" },
   { "kind": "http:fetch", "target": "https://api.example.com/*", "reason": "external sync" }
 ]
 ```
 
-Los kinds de capability incluyen:
+El set cerrado de kinds de capability es:
 
 | Kind | Targets | Qué cubre |
 |---|---|---|
-| `db:read` | nombre de tabla | Lectura de una tabla |
-| `db:write` | nombre de tabla | Inserts, updates, deletes |
-| `event:emit` | nombre de evento | Publicar en el hub WebSocket |
-| `event:subscribe` | nombre de evento | Suscribirse en el hub WebSocket |
-| `http:fetch` | patrón de URL | HTTP saliente desde código en sandbox WASM |
-| `secret:read` | nombre de secret | Leer un secret administrado por el host |
-| `kv:rw` | namespace | Read/write del KV store del kernel |
+| `db:read` | glob schema/tabla | Lectura de una tabla |
+| `db:write` | glob schema/tabla | Inserts, updates, deletes |
+| `event:emit` | nombre de evento | Publicar en el event bus in-process / hub WebSocket |
+| `event:subscribe` | nombre de evento | Suscribirse a un evento publicado |
+| `http:fetch` | prefijo de URL | HTTP saliente desde código en sandbox WASM |
+| `secrets:read` | glob de secret | Leer un secret administrado por el host |
+| `fs:read` | glob de path | Leer archivos read-only del bundle |
+| `cron:register` | expresión cron | Registrar un sweep programado |
+| `queue:produce` / `queue:consume` | nombre de cola | Producir / consumir en una cola |
+| `file-storage:write` | glob de path | Escribir a file storage (exports, adjuntos) |
+| `time:wallclock` | — | Leer el reloj de pared del host |
 
-La lista completa está en [SDK docs / capabilities](https://asteby.github.io/metacore-sdk/manifest-spec#capabilities).
+El schema propio del addon (`addon_<key>.*`) siempre es accesible — nunca lo declares. La lista completa y la sintaxis de targets están en el [WASM ABI del kernel](https://asteby.github.io/metacore-kernel/wasm-abi).
 
 ### Por qué existen las capabilities
 
@@ -74,25 +78,29 @@ El modo es parte de la config del host; el addon no sabe cuál está activo.
 
 ### Cómo se ven los targets
 
-Los targets se matchean literalmente para la mayoría de los kinds. Para `http:fetch`, soportan glob patterns (`https://api.example.com/*`); para `db:read` y `db:write`, el target siempre es un nombre de tabla totalmente calificado dentro del namespace del addon.
+La sintaxis del target depende del kind: `http:fetch` matchea un prefijo de URL, `cron:register` una expresión cron, `event:*` un nombre de evento, y `db:read`/`db:write` un glob `schema.tabla` (p. ej. `addon_tickets.*`). El schema propio del addon es implícito; el acceso cross-schema necesita un grant explícito (`db:read public.users`) y el installer rechaza los manifests que se extralimitan.
 
-Un addon no puede declarar una capability contra una tabla que no le pertenece. El installer rechaza los manifests que lo intentan.
+## Permisos y roles — el contrato del usuario
 
-## Permissions — el contrato del usuario
-
-Un permission es algo que se le puede otorgar a un usuario, declarado en `manifest.permissions[]`:
+v3 declara el lado de cara al usuario bajo `rbac`: **roles** de primera clase más los **permisos** que agrupan.
 
 ```json
-"permissions": [
-  { "id": "tickets.view",   "label": "View tickets" },
-  { "id": "tickets.create", "label": "Create tickets" },
-  { "id": "tickets.edit",   "label": "Edit tickets" },
-  { "id": "tickets.delete", "label": "Delete tickets" },
-  { "id": "tickets.export", "label": "Export tickets" }
-]
+"rbac": {
+  "permissions": [
+    { "key": "tickets.read",   "label": "Ver tickets" },
+    { "key": "tickets.write",  "label": "Crear / editar / borrar tickets" },
+    { "key": "tickets.export", "label": "Exportar tickets" }
+  ],
+  "roles": [
+    { "key": "tickets_agent",   "label": "tickets.role.agent",
+      "permissions": ["tickets.read", "tickets.write"] },
+    { "key": "tickets_viewer",  "label": "tickets.role.viewer",
+      "permissions": ["tickets.read"] }
+  ]
+}
 ```
 
-Los IDs de permission son **opacos para el kernel** — son strings definidos por el addon. El kernel solo guarda los grants y los chequea.
+Las keys de permiso son **opacas para el kernel** — son strings definidos por el addon. El kernel guarda los grants, resuelve el set efectivo del usuario y los chequea. (El dual-read del kernel 3.x mapea un array v2 legacy `permissions[]` a `rbac.permissions[]`; los roles son nuevos en v3.)
 
 ### Cómo obtienen los usuarios sus permissions
 
@@ -110,16 +118,16 @@ El runtime mapea IDs de permission a operaciones CRUD por convención o declarac
 
 | Operación | Permission por defecto | Override |
 |---|---|---|
-| `GET .../:table` | `:table.view` | manifest |
-| `GET .../:table/:id` | `:table.view` | manifest |
-| `POST .../:table` | `:table.create` | manifest |
-| `PATCH .../:table/:id` | `:table.edit` | manifest |
-| `DELETE .../:table/:id` | `:table.delete` | manifest |
+| `GET /api/dynamic/:model` | `:model.read` | manifest |
+| `GET /api/dynamic/:model/:id` | `:model.read` | manifest |
+| `POST /api/dynamic/:model` | `:model.write` | manifest |
+| `PUT /api/dynamic/:model/:id` | `:model.write` | manifest |
+| `DELETE /api/dynamic/:model/:id` | `:model.write` | manifest |
 
 Para las actions, el manifest declara el permission requerido explícitamente:
 
 ```json
-{ "id": "close-with-reason", "permission": "tickets.edit", ... }
+{ "key": "close_with_reason", "permission": "tickets.write", "...": "..." }
 ```
 
 ### Gating de UI
@@ -127,10 +135,16 @@ Para las actions, el manifest declara el permission requerido explícitamente:
 El SDK lee los permissions efectivos del usuario y gatea componentes automáticamente:
 
 ```tsx
-import { useCapabilities } from '@asteby/metacore-runtime-react'
+import { useCapabilities, CapabilityGate } from '@asteby/metacore-runtime-react'
 
+// Forma con hook — devuelve { has, all, any }.
 const can = useCapabilities()
-if (!can('tickets.create')) return <ReadOnlyView />
+if (!can.has('tickets.write')) return <ReadOnlyView />
+
+// Forma declarativa.
+<CapabilityGate require="tickets.write" fallback={<ReadOnlyView />}>
+  <CreateButton />
+</CapabilityGate>
 ```
 
 Los componentes built-in — `<DynamicTable>`, `<DynamicForm>`, botones de action — ya chequean los permissions correctos y se ocultan / deshabilitan solos. Solo necesitás chequeos explícitos para UI personalizada.

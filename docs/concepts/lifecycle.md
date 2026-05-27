@@ -8,16 +8,16 @@ An addon goes through three runtime moments: **install**, **upgrade**, **uninsta
 
 When a `.mcbundle` arrives (uploaded via API, dropped in `BundleDir`, or registered in code as an embedded addon), the installer runs:
 
-1. **Verify** — bundle signature, manifest schema, version format.
-2. **Resolve dependencies** — every entry in `manifest.dependencies[]` must already be installed at a compatible version. If not, the install is rejected.
-3. **Conflict check** — table names, capability targets and permission IDs must not collide with installed addons.
+1. **Verify** — bundle signature (ed25519), manifest validation (strict v3, or v2 up-converted), version format.
+2. **Resolve dependencies** — every `compatibility.requires[]` entry must be satisfied: `key: "kernel"` against the host version, and any other `key` against an installed addon at a compatible semver range. `optional: true` entries don't fail the install if absent.
+3. **Conflict check** — table names, capability targets and permission keys must not collide with installed addons.
 4. **Open transaction** — every step below runs inside a single DB transaction.
-5. **Apply DDL** — for each `tables[]` entry, generate `CREATE TABLE` + indexes + foreign keys. Type mappings (uuid, timestamp, enum, etc.) are dialect-aware (Postgres / SQLite).
-6. **Register metadata** — column schema, capability declarations, permission IDs, action routes.
-7. **Run install hook** — if the addon defines `lifecycle.install`, the kernel calls it (in WASM if the addon ships a WASM module, in-process if it's an embedded addon).
-8. **Mount routes** — dynamic CRUD, actions, frontend slot endpoints.
-9. **Load WASM** — if present, instantiate the module in wazero with its capability set.
-10. **Commit** — the addon is now live.
+5. **Apply DDL** — for each `models[]` entry, generate `CREATE TABLE` + indexes + foreign keys into the addon's Postgres schema (`addon_<key>`). `dynamic.EnsureSchema → Apply` is idempotent.
+6. **Register metadata** — column schema, capability declarations, RBAC permissions/roles, action routes.
+7. **Run install hook** — if the manifest declares `lifecycle.install` (a function name like `"Install"`), the kernel dispatches it (in WASM if the addon ships a module, in-process if embedded). A non-nil error aborts.
+8. **Project CRUD hooks** — `contributions.subscriptions[]` are registered into the hook registry.
+9. **Mount routes** — dynamic CRUD, actions, frontend slot endpoints.
+10. **Commit** — the addon is now live, and the kernel broadcasts a `ManifestChangeEvent` so SDK frontends drop their metadata cache without polling.
 
 If any step fails, the transaction rolls back. The host is left exactly as it was; no partial install.
 
@@ -27,45 +27,48 @@ Optional. Used for one-time setup that DDL alone can't express — seeding a def
 
 ```json
 "lifecycle": {
-  "install": "./go/install.go"
+  "install":   "Install",
+  "uninstall": "Uninstall",
+  "enable":    "Enable",
+  "disable":   "Disable"
 }
 ```
 
-The hook receives the kernel's installer context (DB handle, KV, secret store, identity helpers) and returns an error to abort the install.
+Each value is an **exported function name** the addon's WASM backend (or embedded Go) provides — not a file path. The hook receives the installer context and returns an error to abort the install.
 
 ## Upgrade
 
-When a new version of an installed addon arrives, the installer:
+`Installer.Upgrade(ctx, orgID, newBundle)` drives the transition (the `upgrade` lifecycle event is fired by the installer, not by `Install`):
 
-1. **Compare versions** — same `manifest.id`, higher `version`. Older versions are rejected by default (downgrade requires an explicit flag).
-2. **Diff manifests** — table-level, column-level, permission-level. The diff is the source of truth for what migrations to run.
-3. **Plan migrations** — additions are safe (new columns, new indexes, new permissions); changes and removals require explicit handling. Some are blocked outright (e.g. changing a primary key type) without a manifest-declared migration.
-4. **Open transaction.**
-5. **Apply DDL diff** — `ADD COLUMN`, `CREATE INDEX`, etc. Dialect-aware.
-6. **Run upgrade hook** — if defined, called with the previous version + the new one. Used for data migrations (e.g. backfilling a new column from an old one).
-7. **Update metadata** — new column schema, new permission IDs, new action routes.
-8. **Reload WASM** — the old module is torn down, the new one instantiated.
-9. **Commit.**
+1. **Verify** the new bundle's signature and re-validate the manifest. Guard errors (`ErrNotInstalled`, `ErrSameVersionUpgrade`, `ErrCannotDowngrade`) surface **before any mutation**.
+2. **Compare versions** — same `metadata.key`, higher `version`. Downgrades are rejected.
+3. **Dispatch `upgrade` (phase `before`)** — payload carries `from_version` / `to_version`. A non-nil error aborts: the row is untouched, no schema work runs.
+4. **Apply schema** — `EnsureSchema → Apply → CreateTable / SyncSchema` on the new manifest. Additive: old columns survive; already-recorded migrations are skipped.
+5. **Re-project CRUD hooks** — the old subscriptions are unregistered and the new shape registered.
+6. **Persist the version bump** with a settings merge — user-tuned values win; new manifest defaults are added.
+7. **Dispatch `upgrade` (phase `after`)** — with a `migrations_applied` counter. `after` errors are logged and swallowed (the upgrade has committed; DDL rollback is unsafe).
+8. **Broadcast `ManifestChangeEvent`** so SDK frontends drop their metadata cache.
 
-Same atomicity guarantee: failure rolls back the entire upgrade.
+### Upgrade ladder
 
-### Upgrade hooks
+The manifest declares a semver-matched migration ladder. Each step matches the *recorded* version against `from`:
 
 ```json
 "lifecycle": {
   "upgrade": [
-    { "from": "0.1.0", "to": "0.2.0", "hook": "./go/upgrade_0_1_to_0_2.go" }
+    { "from": ">=1.0.0 <1.3.0", "type": "wasm", "function": "MigrateTo_1_3" },
+    { "from": ">=1.3.0 <2.0.0", "type": "sql",  "function": "migrations/1_3_to_2_0.sql" }
   ]
 }
 ```
 
-Multiple hooks can be chained; the installer applies them in order, skipping ones that don't match the current version. Each runs in its own savepoint.
+`type: "wasm"` calls a function exported by the addon's backend; `type: "sql"` runs a goose-compatible SQL file from the bundle. (A `kind: "Preset"` may not declare `lifecycle.upgrade[]`.)
 
 ### What's blocked without an explicit migration
 
-- Changing a column's type (other than widening, e.g. `int → bigint`)
-- Removing a `primaryKey: true` column
-- Removing a column referenced by another addon's `ref` columns
+- Changing a column's type (other than widening, e.g. `integer → bigint`)
+- Removing a `primary_key: true` column
+- Removing a column referenced by another model's foreign keys
 - Removing a permission that's currently granted to users (data exists)
 
 These are surfaced as install errors with clear messages; the addon author has to declare a migration that handles them.
@@ -79,31 +82,33 @@ Reverses install:
 3. **Run uninstall hook** — if defined. Used to clean up external resources (deregister webhooks, cancel cron entries).
 4. **Tear down WASM** — module evicted, sandbox closed.
 5. **Unmount routes** — dynamic CRUD, actions, slots.
-6. **Drop schema** — `DROP TABLE` for each `tables[]` entry. By default the kernel **does not** drop tables; it renames them with a `_tombstone` suffix and a timestamp, so an operator can restore data if the uninstall was a mistake. A `--purge` flag drops them outright.
+6. **Drop schema** — `DROP TABLE` for each `models[]` entry. By default the kernel **does not** drop tables; it renames them with a `_tombstone` suffix and a timestamp, so an operator can restore data if the uninstall was a mistake. A `--purge` flag drops them outright.
 7. **Remove metadata** — capabilities, permissions, action declarations.
 8. **Commit.**
 
 ### Uninstall hooks
 
 ```json
-"lifecycle": {
-  "uninstall": "./go/uninstall.go"
-}
+"lifecycle": { "uninstall": "Uninstall" }
 ```
 
-The hook runs **before** any schema teardown, so it has full access to the data.
+The hook (an exported function name) runs **before** any schema teardown, so it has full access to the data.
 
 ## What hosts see
 
-The host's installer API exposes each step's outcome — the migration log, hook output, dependency tree at install time, the diff plan at upgrade time. A host admin UI typically renders this as a timeline using `GET /api/installs/:id`.
+The host's installer API exposes each step's outcome — the migration log, hook output, dependency tree at install time. Installs live under `/api/metacore/installations`; the upgrade endpoint is `PUT /api/metacore/installations/:key/version` (multipart bundle upload). A host admin UI typically renders the history as a timeline.
 
 ## Versioning
 
 Versions are semver. The kernel doesn't enforce semver semantics (i.e. it doesn't check that a major version bump is "really" breaking) — the addon author owns that. What it does enforce:
 
-- Versions strictly monotonic per addon ID
+- Versions strictly monotonic per addon `metadata.key`
 - Migrations declared between consecutive versions
 - Bundle signatures matching the version they claim
+
+## A note on Presets
+
+Installing a `kind: "Preset"` is a single transition that resolves and installs its `preset.addons[]` in dependency order, then applies the preset's `defaults` (settings) on top. A preset is the unit of distribution for a vertical — install one, get a coherent set of foundation addons wired together.
 
 ## Related
 

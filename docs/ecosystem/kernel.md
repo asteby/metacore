@@ -17,27 +17,31 @@
 
 ## Stack
 
-- **Go 1.22+**
+- **Go 1.25+** (the WASM runtime needs `CGO_ENABLED=1` — `pg_query` for SQL gating)
+- **Fiber** as the HTTP router the kernel mounts onto
+- **GORM** over **PostgreSQL** (the runtime's SQL gating is Postgres-specific)
 - **wazero** for the WASM sandbox
-- **database/sql** with dialect-aware DDL generation (Postgres, SQLite)
-- **OpenTelemetry** for traces, metrics, logs
+- **OpenTelemetry / Prometheus** — traces, metrics (`/api/metrics`), logs
 - **Zero external services** at runtime — no Redis, no message broker; the kernel ships its own primitives
 
-## Embedding in 30 seconds
+## Embedding in a few lines
 
 ```go
 import (
     "github.com/asteby/metacore-kernel/host"
-    "github.com/asteby/metacore-kernel/kernel"
+    "github.com/gofiber/fiber/v2"
 )
 
-app, _ := host.NewApp(host.Config{
-    DatabaseURL: "postgres://...",
-    BundleDir:   "./bundles",
-    Listen:      ":8080",
+app := host.NewApp(host.AppConfig{
+    DB:            db,                       // *gorm.DB
+    JWTSecret:     []byte(jwtSecret),
+    RunMigrations: true,
 })
-app.Mount("/api", kernel.Router(app.Kernel))
-app.Run()
+defer app.Stop()
+
+fiberApp := fiber.New()
+app.Mount(fiberApp.Group("/api"))           // dynamic CRUD, metadata, options, metrics
+fiberApp.Listen(":3000")
 ```
 
 That's a complete addon-hosting backend. See [Embed the runtime](/getting-started/embed-the-runtime) for the full walkthrough.

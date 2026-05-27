@@ -20,8 +20,8 @@ Metacore is one platform spread across a small set of public repositories. This 
    │  Go runtime           │              │  TS packages + CLI    │
    │  • dynamic CRUD       │◀────reads────│  • manifest schema    │
    │  • permissions        │              │  • runtime-react      │
-   │  • lifecycle          │              │  • 16 npm packages    │
-   │  • WASM sandbox       │              │  • metacore-sdk CLI   │
+   │  • lifecycle          │              │  • runtime + UI pkgs  │
+   │  • WASM sandbox       │              │  • metacore Go CLI    │
    │  • WebSocket hub      │              │                       │
    └──────────┬────────────┘              └────────────┬──────────┘
               │                                        │

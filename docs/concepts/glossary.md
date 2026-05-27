@@ -6,9 +6,13 @@ Short definitions of every term that recurs in the docs. Links go to the page th
 
 ## A
 
-**Addon.** A self-contained module that adds tables, endpoints, actions and UI to a host. Defined by a [manifest](/concepts/manifest) and packaged as a [bundle](#b).
+**Addon.** A self-contained module (`kind: "Addon"`) that adds models, endpoints, actions and UI to a host. Defined by a [manifest](/concepts/manifest) and packaged as a [bundle](#b).
 
-**Action.** A non-CRUD operation declared in `manifest.actions[]`. The runtime mounts a route and renders a button (with a dialog for input); the addon provides the body. See the [manifest concept](/concepts/manifest#actions).
+**Action.** A non-CRUD operation declared in `contributions.actions[]`. The runtime mounts a route and renders a button — with a [confirm](#a), an auto-built modal from declarative `fields`, or a custom modal. See the [manifest concept](/concepts/manifest#actions).
+
+**Action modal.** The UI an action presents for its inputs: a `confirm` prompt, a generic modal built from `fields`, or a custom frontend `modal` referenced by slug. Fields can include repeatable [line-item groups](#l).
+
+**apiVersion.** The top-level field selecting the manifest contract version. `asteby.com/v3` is the current Module Contract; a missing `apiVersion` is read as legacy v2 (the kernel dual-reads both).
 
 **Audit.** Structured log of every capability check, permission check, and CRUD operation. Routed through the kernel's audit hook to a host-defined sink.
 
@@ -18,23 +22,29 @@ Short definitions of every term that recurs in the docs. Links go to the page th
 
 ## C
 
-**Capability.** A subsystem the addon promises to use, declared in `manifest.capabilities[]`. Enforced by the kernel's security enforcer at every call. See [Permissions](/concepts/permissions#capabilities--the-addon-contract).
+**Capability.** A subsystem the addon promises to use, declared in `capabilities[]`. Enforced by the kernel's security enforcer at every call. See [Permissions](/concepts/permissions#capabilities--the-addon-contract).
 
-**CLI.** `metacore-sdk`, the command-line tool. Scaffolds, builds, signs and publishes addons.
+**CLI.** The Go `metacore` tool (`go install github.com/asteby/metacore-sdk/cli@latest`). Scaffolds (`init`), validates, builds, signs and publishes addons.
+
+**ConnectorPack.** A manifest `kind` that ships credentials + capability templates for a third-party API (Stripe, Mercado Pago, …). No models or code of its own.
+
+**Contributions.** The consumer side of inter-addon coupling — `contributions.{navigation,slots,actions,subscriptions,tools}`. What an addon adds to the host's surface.
 
 ## D
 
-**Dynamic CRUD.** The kernel's generic store + handler that serves list / get / create / update / delete for any table declared in any installed addon's manifest. Pagination, sort, filter and tenancy are built in. See the [concept page](/concepts/dynamic-crud).
+**Dynamic CRUD.** The kernel's generic store + handler that serves list / get / create / update / delete (plus relation filters, group-by and aggregations) for any model declared in any installed addon's manifest. Pagination, sort, filter and tenancy are built in. See the [concept page](/concepts/dynamic-crud).
 
-**`<DynamicTable>`.** SDK component that reads the kernel's column metadata and renders a fully featured CRUD table. The frontend mirror of dynamic CRUD.
+**`<DynamicTable>` / `<DynamicCRUDPage>`.** SDK components that read the kernel's metadata (`/api/metadata/table/:model`) and render a full CRUD table — and, for `DynamicCRUDPage`, the create/edit/view dialogs and actions. The frontend mirror of dynamic CRUD.
 
 ## E
 
-**Embedded addon.** An addon registered in code with `kernel.RegisterAddon()` instead of installed as a `.mcbundle`. Used for first-party features that ship with the host binary.
+**Embedded addon.** An addon (or model) registered in code — e.g. `app.RegisterModel(...)` — instead of installed as a bundle. Used for first-party features that ship with the host binary.
 
 **Enforcer.** `security.Enforcer`, the kernel subsystem that checks capabilities. Runs in shadow or enforce mode.
 
-**Event.** A real-time message published on the WebSocket hub. Declared in `manifest.events[]` and gated by `event:emit` / `event:subscribe` capabilities.
+**Event.** A message published on the in-process event bus / WebSocket hub. Published events are declared in `extension_points.events[]` (with a payload schema) and gated by `event:emit` / `event:subscribe` capabilities.
+
+**Extension point.** The publisher side of inter-addon coupling — `extension_points.{events,slot_kinds,model_extensions_accepted}`. What an addon offers for others to extend.
 
 ## H
 
@@ -52,37 +62,59 @@ Short definitions of every term that recurs in the docs. Links go to the page th
 
 **Kernel.** The Go runtime — `asteby/metacore-kernel`. Owns persistence, REST, permissions, lifecycle, the WASM sandbox, the WebSocket hub. See [Kernel](/ecosystem/kernel).
 
+**Kind.** `metadata.kind` — the top-level shape the kernel installs: `Addon`, `Preset`, `Theme` or `ConnectorPack`.
+
+## L
+
+**Line items.** A repeatable group of fields declared on an action (e.g. invoice lines, order items). A declarative array input the runtime renders as add/remove rows in the action modal.
+
 ## M
 
-**Manifest.** `manifest.json`, the source of truth for an addon. Declares schema, capabilities, permissions, actions, slots, lifecycle hooks. See the [concept page](/concepts/manifest).
+**Manifest.** `manifest.json`, the source of truth for a unit of extensibility. The current format is the [Module Contract v3](#m). Declares models, capabilities, RBAC, contributions, extension points, lifecycle. See the [concept page](/concepts/manifest).
 
-**Migration.** A schema change applied during install or upgrade. Generated by the kernel from the manifest diff; supplemented by addon-declared upgrade hooks for data transformations.
+**Migration.** A schema change applied during install or upgrade. Generated by the kernel from the manifest; supplemented by the manifest's `lifecycle.upgrade[]` ladder for data transformations.
 
-**Model definition.** The runtime representation of a `tables[]` entry — column metadata, validators, indexes. Used by both the dynamic store and the SDK's components.
+**Model.** A `models[]` entry — `key`, `table`, columns, indices, foreign keys. The runtime representation drives both the dynamic store and the SDK's components.
+
+**Module Contract.** The formal manifest specification. **v3** (`apiVersion: asteby.com/v3`) is the current, strict contract; the kernel dual-reads legacy v2 during the 3.x line.
 
 ## P
 
-**Permission.** A user-grantable identifier declared in `manifest.permissions[]`, e.g. `tickets.create`. Enforced by the kernel's permission service. Distinct from a [capability](#c) — capabilities are about the addon, permissions are about the user. See [Permissions](/concepts/permissions).
+**Permission.** A user-grantable key declared in `rbac.permissions[]`, e.g. `tickets.write`. Bundled into [roles](#r). Enforced by the kernel's permission service. Distinct from a [capability](#c) — capabilities are about the addon, permissions are about the user. See [Permissions](/concepts/permissions).
 
 **`permission.Service`.** The kernel subsystem that resolves a user's effective permissions and enforces them on every request.
+
+**Preset.** A manifest `kind` that bundles foundation addons (`preset.addons[]`) with default settings and installs them as one unit — the distribution unit for a vertical.
+
+## R
+
+**RBAC.** The `rbac` block — first-class `roles[]` plus the `permissions[]` they bundle.
+
+**Role.** A named bundle of permissions declared in `rbac.roles[]`. New in v3.
 
 ## S
 
 **Sandbox.** The wazero-based WebAssembly runtime that executes addon code. Has access only to the kernel ABI declared by the addon's capabilities; no host memory, no host filesystem.
 
-**SDK.** `asteby/metacore-sdk` — the npm packages and CLI that declare addons and render UI. See [SDK](/ecosystem/sdk).
+**SDK.** `asteby/metacore-sdk` — the npm packages and the Go CLI that declare addons and render UI. See [SDK](/ecosystem/sdk).
 
-**Slot.** A named UI extension point in a host. Addons contribute components for slots via `manifest.frontend.slots`; the host renders them with `<Slot name="..." />`.
+**Slot.** A point where an addon contributes a React component to the host's UI, via `contributions.slots[]` against a published [slot kind](#s). The host renders it with `<Slot name="..." />`.
+
+**Slot kind.** A typed UI extension surface an addon publishes in `extension_points.slot_kinds[]`, with a props schema. Consumers contribute slots against it — coupling by name, never by import.
 
 ## T
 
-**Tenancy.** Multi-tenant scoping by `org_id`. Built into dynamic CRUD; every query is auto-filtered by the current identity's organization.
+**Tenancy.** Multi-tenant scoping declared in `tenancy` — `shared` (one schema + Postgres RLS on `rls_column`, the default) or `schema` (one schema per installation). Dynamic CRUD auto-filters by the current identity's organization.
+
+**Theme.** A manifest `kind` that ships a pure visual contribution — design tokens, fonts, icon overrides. No models, no code.
+
+**Tool.** An LLM-triggered counterpart to an action, declared in `contributions.tools[]` with an input schema. Conversational hosts register these in their agent-tool registry.
 
 ## W
 
-**WASM ABI.** The set of host functions exposed to addon code running in the sandbox. Capability-gated; an addon can call only the functions matching its declared capabilities.
+**WASM ABI.** The set of host functions exposed to addon code running in the sandbox. Capability-gated; an addon can call only the functions matching its declared capabilities. Frozen as v1.0 — see the [kernel WASM ABI](https://asteby.github.io/metacore-kernel/wasm-abi).
 
-**WebSocket hub.** The kernel's real-time fanout. Tenants and channels are first-class; addons emit, clients subscribe via `useDynamicQuery` and friends.
+**WebSocket hub.** The kernel's real-time fanout. Tenants and channels are first-class; addons emit, and `@asteby/metacore-websocket` / the runtime hooks subscribe so `<DynamicTable>` invalidates on change.
 
 ## See also
 

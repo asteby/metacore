@@ -10,9 +10,9 @@ This page is about what that buys you, what it costs, and where it does not fit.
 
 | Concern | Without Metacore | With Metacore |
 |---|---|---|
-| Schema migrations | Hand-written `up`/`down` files, kept in sync with code | Derived from `manifest.tables[]`, run by the installer |
+| Schema migrations | Hand-written `up`/`down` files, kept in sync with code | Derived from `manifest.models[]`, run by the installer |
 | REST handlers | One per resource × five verbs (list, get, create, update, delete) | Mounted automatically from the manifest |
-| OpenAPI / metadata | Maintained separately, drifts | Served from `_meta/columns`, always matches the schema |
+| OpenAPI / metadata | Maintained separately, drifts | Served from `/api/metadata/table/:model`, always matches the schema |
 | List / edit / create / delete UI | Custom forms, custom tables, repeated 20× | `<DynamicTable>` + `<DynamicForm>` reads the same metadata |
 | Pagination, sorting, filtering | Re-implemented per page | Built into the runtime |
 | Validation | Duplicated client + server | Declared once in the manifest, enforced both sides |
@@ -28,7 +28,7 @@ The pattern is consistent: anything that can be read off the manifest, the runti
 Metacore is opinionated about plumbing, not about behavior. You still own:
 
 - **Custom validators.** Manifest-declared rules cover length, type, regex, required-ness; anything beyond that is a Go validator you register on the addon.
-- **Custom actions.** Buttons that aren't CRUD live in `manifest.actions[]`. The runtime wires the route and the UI; the body is yours.
+- **Custom actions.** Buttons that aren't CRUD live in `contributions.actions[]` — including action modals (declarative `fields`, a custom `modal`, or a `confirm` prompt) and repeatable line-item groups. The runtime wires the route and the UI; the body is yours.
 - **Domain logic.** Pricing, scheduling, AI calls, side effects, integrations — your code, plain Go inside the addon.
 - **Escape hatches.** When metadata isn't enough, fall back to direct handler registration on the kernel. The SDK doesn't sit between you and the database; it just removes the wiring.
 - **The runtime itself.** The kernel is a library you embed, not a SaaS. It runs on your infrastructure, in your binary.

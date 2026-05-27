@@ -10,9 +10,9 @@ Esta página trata sobre qué te compra eso, cuánto cuesta y dónde no encaja.
 
 | Tema | Sin Metacore | Con Metacore |
 |---|---|---|
-| Migraciones de schema | Archivos `up`/`down` escritos a mano, mantenidos en sync con el código | Derivadas de `manifest.tables[]`, ejecutadas por el instalador |
+| Migraciones de schema | Archivos `up`/`down` escritos a mano, mantenidos en sync con el código | Derivadas de `manifest.models[]`, ejecutadas por el instalador |
 | Handlers REST | Uno por recurso × cinco verbos (list, get, create, update, delete) | Montados automáticamente desde el manifest |
-| OpenAPI / metadata | Mantenida aparte, diverge | Servida desde `_meta/columns`, siempre coincide con el schema |
+| OpenAPI / metadata | Mantenida aparte, diverge | Servida desde `/api/metadata/table/:model`, siempre coincide con el schema |
 | UI de list / edit / create / delete | Formularios custom, tablas custom, repetidos 20× | `<DynamicTable>` + `<DynamicForm>` lee la misma metadata |
 | Paginación, ordenamiento, filtrado | Re-implementado por página | Built-in en el runtime |
 | Validación | Duplicada en cliente + server | Declarada una vez en el manifest, aplicada en ambos lados |
@@ -28,7 +28,7 @@ El patrón es consistente: cualquier cosa que pueda leerse del manifest, el runt
 Metacore tiene opiniones sobre el plumbing, no sobre el comportamiento. Vos seguís siendo dueño de:
 
 - **Validadores custom.** Las reglas declaradas en el manifest cubren largo, tipo, regex, requerido; cualquier cosa más allá es un validador Go que registrás en el addon.
-- **Acciones custom.** Los botones que no son CRUD viven en `manifest.actions[]`. El runtime cablea la route y la UI; el cuerpo es tuyo.
+- **Acciones custom.** Los botones que no son CRUD viven en `contributions.actions[]` — incluyendo action modals (con `fields` declarativos, un `modal` custom o un prompt de `confirm`) y grupos repetibles de line-items. El runtime cablea la route y la UI; el cuerpo es tuyo.
 - **Lógica de dominio.** Pricing, scheduling, llamadas a IA, side effects, integraciones — tu código, Go plano dentro del addon.
 - **Escape hatches.** Cuando la metadata no alcanza, caés a registración directa de handlers en el kernel. El SDK no se mete entre vos y la base de datos; solo elimina el cableado.
 - **El runtime mismo.** El kernel es una librería que embebés, no un SaaS. Corre en tu infraestructura, dentro de tu binario.

@@ -14,6 +14,9 @@ hero:
       text: Empezar
       link: /es/getting-started/
     - theme: alt
+      text: Novedades de v3
+      link: /es/v3
+    - theme: alt
       text: Arquitectura
       link: /es/architecture
     - theme: alt
@@ -43,7 +46,7 @@ features:
 
 ## Qué es Metacore?
 
-Metacore es un runtime + SDK para construir aplicaciones de negocio modulares y multi-tenant a partir de pequeños addons declarativos. El **kernel** es una librería Go que embebés en tu app: posee el schema de la base de datos, la superficie REST, los permisos, el lifecycle y un hub WebSocket. El **SDK** es un set de packages npm y una CLI: te deja describir un addon — sus tablas, capabilities y UI — en un solo `manifest.json`, y renderiza el resultado como una experiencia React tipada dentro de cualquier host.
+Metacore es un runtime + SDK para construir aplicaciones de negocio modulares y multi-tenant a partir de pequeños addons declarativos. El **kernel** es una librería Go que embebés en tu app: posee el schema de la base de datos, la superficie REST, los permisos, el lifecycle y un hub WebSocket. El **SDK** es un set de packages npm: te deja describir un addon — sus modelos, capabilities y UI — en un solo `manifest.json` (el **Module Contract v3**), y renderiza el resultado como una experiencia React tipada dentro de cualquier host.
 
 Juntos, convierten un manifest en una app CRUD funcional. Cualquier host que construyas sobre los mismos primitivos — un panel de operador, un portal de cliente, un admin embebido — la levanta automáticamente.
 
@@ -53,33 +56,34 @@ Juntos, convierten un manifest en una app CRUD funcional. Cualquier host que con
 
 ```json [manifest.json]
 {
-  "id": "tickets",
-  "name": "Tickets",
-  "version": "0.1.0",
-  "tables": [{
-    "name": "tickets",
-    "columns": [
-      { "name": "id",       "type": "uuid", "primaryKey": true },
-      { "name": "title",    "type": "string", "required": true },
-      { "name": "status",   "type": "enum",   "values": ["open","closed"] },
-      { "name": "assignee", "type": "string" }
-    ]
-  }],
+  "apiVersion": "asteby.com/v3",
+  "kind": "Addon",
+  "metadata": { "key": "tickets", "name": "Tickets", "version": "0.1.0" },
   "capabilities": [
-    { "kind": "db:read",  "target": "tickets" },
-    { "kind": "db:write", "target": "tickets" }
-  ]
+    { "kind": "db:read",  "target": "addon_tickets.*" },
+    { "kind": "db:write", "target": "addon_tickets.*" }
+  ],
+  "models": [{
+    "key": "Ticket",
+    "table": "tickets",
+    "columns": [
+      { "name": "id",       "type": "uuid", "primary_key": true, "default": "gen_random_uuid()" },
+      { "name": "title",    "type": "text", "not_null": true },
+      { "name": "status",   "type": "text", "default": "'open'" },
+      { "name": "assignee", "type": "text" }
+    ]
+  }]
 }
 ```
 
 ```bash [endpoints]
 # Montados por el kernel, no se necesita código de handler.
-GET    /api/addons/tickets/tickets
-GET    /api/addons/tickets/tickets/:id
-POST   /api/addons/tickets/tickets
-PATCH  /api/addons/tickets/tickets/:id
-DELETE /api/addons/tickets/tickets/:id
-GET    /api/addons/tickets/_meta/columns
+GET    /api/dynamic/tickets
+GET    /api/dynamic/tickets/:id
+POST   /api/dynamic/tickets
+PUT    /api/dynamic/tickets/:id
+DELETE /api/dynamic/tickets/:id
+GET    /api/metadata/table/tickets
 ```
 
 ```tsx [ui.tsx]
@@ -87,7 +91,7 @@ import { DynamicTable } from '@asteby/metacore-runtime-react'
 
 // Lee la misma metadata, obtiene list + paginate + sort + filter.
 export default function Tickets() {
-  return <DynamicTable addon="tickets" table="tickets" />
+  return <DynamicTable model="tickets" />
 }
 ```
 
@@ -104,7 +108,7 @@ Vos escribís un manifest, el SDK hace el resto. Publicá un `.mcbundle` en cual
 
 <a class="role-card" href="/metacore/es/getting-started/embed-the-runtime">
 <strong>Estoy embebiendo el runtime en mi app Go →</strong>
-Soltá el kernel en un server Gin/Chi, obtené CRUD dinámico, permisos y WebSockets out of the box.
+Soltá el kernel en un server Fiber, obtené CRUD dinámico, permisos y WebSockets out of the box.
 </a>
 
 <a class="role-card" href="/metacore/es/getting-started/build-a-host">
@@ -116,7 +120,7 @@ Un frontend Vite + React sobre un backend Go que monta el kernel. El SDK provee 
 
 <a class="role-card" href="/metacore/es/sdk/">
 <strong>Referencia del SDK →</strong>
-Los 16 packages npm, el spec del manifest, UI dinámica, el cookbook, capabilities, publicación.
+Los packages npm publicados, el spec del manifest, UI dinámica, el cookbook, capabilities, publicación.
 </a>
 
 <a class="role-card" href="/metacore/es/kernel/">

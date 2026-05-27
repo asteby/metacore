@@ -8,7 +8,9 @@ export const en: LocaleSpecificConfig<DefaultTheme.Config> = {
   themeConfig: {
     nav: [
       { text: 'Why', link: '/why' },
+      { text: 'v3', link: '/v3' },
       { text: 'Get Started', link: '/getting-started/' },
+      { text: 'Libraries', link: '/libraries' },
       {
         text: 'SDK',
         items: [

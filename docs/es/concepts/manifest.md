@@ -1,6 +1,8 @@
 # Manifest
 
-El manifest es un único archivo JSON que describe completamente un addon. Es la **fuente de verdad** tanto para el runtime (que lo usa para aprovisionar el schema y montar las rutas) como para la UI (que lo lee para renderizar componentes tipados). Todo lo demás en un addon — código Go, componentes React, assets — es opcional.
+El manifest es un único archivo JSON que describe completamente una unidad de extensibilidad — un addon, un preset vertical, un theme o un connector pack. Es la **fuente de verdad** tanto para el runtime (que lo usa para aprovisionar el schema y montar las rutas) como para la UI (que lo lee para renderizar componentes tipados). Todo lo demás — código Go, componentes React, assets — es opcional.
+
+El formato actual es el **Module Contract v3** (`apiVersion: asteby.com/v3`). El principio detrás: *el manifest es el contrato, el código es un detalle de implementación.* Si una capability, un evento, un schema o un slot de UI no está declarado en el manifest, no existe — el kernel nunca introspecciona el binario del addon para descubrir comportamiento.
 
 [[toc]]
 
@@ -9,50 +11,80 @@ El manifest es un único archivo JSON que describe completamente un addon. Es la
 El drift es el costo dominante del tooling de admin: los schemas evolucionan más rápido que los handlers, los handlers más rápido que las UIs, y los tres terminan describiendo productos ligeramente distintos. El manifest colapsa eso en un solo artefacto:
 
 - **Versionado en git.** Los diffs son revisables; los rollbacks son triviales.
-- **Validado por máquina.** Un schema formal rechaza addons ambiguos antes de que se buildeen.
+- **Validado por máquina.** Un JSON Schema formal (`manifest-v3.schema.json`, Draft 2020-12) rechaza addons ambiguos antes de que se buildeen. El `v3.Validate` del kernel es estricto — los campos fuera del contrato se rechazan.
 - **Leído por cada capa.** El kernel, el SDK, la CLI y la UI leen los mismos campos. No hay un segundo contrato que mantener.
 
 Cuando un addon se comporta mal, el manifest es el único lugar donde mirar.
 
-## Campos de nivel superior
+## Kinds
 
-| Campo | Propósito |
+`metadata.kind` selecciona la forma de nivel superior que el kernel instala:
+
+| kind | Qué es |
 |---|---|
-| `id` | Identificador estable. Se usa en rutas (`/api/addons/:id/...`) y en storage. Debe ser único dentro de un host. |
-| `name`, `displayName`, `version` | Metadata para humanos. La versión es semver y controla las migraciones de upgrade. |
-| `tables[]` | Schema. El installer lo traduce a DDL. Ver más abajo. |
-| `capabilities[]` | Lo que el addon promete hacer. Lo aplica el `security.Enforcer` del kernel. |
-| `permissions[]` | Lo que se les puede otorgar a los usuarios. Lo aplica `permission.Service`. |
-| `actions[]` | Operaciones personalizadas (no-CRUD). El runtime monta una ruta por acción; el cuerpo lo escribís vos. |
-| `events[]` | Canales en tiempo real que el addon emite / suscribe. Expuestos vía el hub WebSocket. |
-| `frontend.slots` | Puntos de extensión de UI con nombre. El runtime los renderiza vía `<Slot>`. |
-| `frontend.navigation` | Dónde aparece el addon en la nav del host (sidebar, header, etc.). |
-| `dependencies[]` | Otros addons que este necesita. El installer los resuelve. |
-| `lifecycle` | Hooks para `install`, `upgrade`, `uninstall`. Opcional. |
+| `Addon` | Un módulo foundation que aporta modelos, eventos, slots, RBAC y código. |
+| `Preset` | Un bundle curado de addons con settings por defecto — un *vertical* que se instala como una sola unidad. Declara `preset.addons[]`; no puede declarar sus propios `models[]`. |
+| `Theme` | Una contribución puramente visual (tokens, fuentes, overrides de íconos). Sin código, sin modelos. |
+| `ConnectorPack` | Un set de credenciales + templates de capability para APIs de terceros (Stripe, Mercado Pago, …). |
 
-## Tables
+El schema aplica las exclusiones mutuas (un `Preset` no puede declarar modelos, etc.); el kernel rechaza bundles inconsistentes al instalar.
 
-Una entrada en tables mapea a una tabla de base de datos. El installer del kernel la lee, genera el DDL y lo ejecuta dentro de una transacción de migración.
+## Layout de nivel superior
+
+```jsonc
+{
+  "apiVersion": "asteby.com/v3",
+  "kind":       "Addon",
+
+  "metadata":        { "key": "...", "version": "...", "i18n": {...}, "countries": [...] },
+  "compatibility":   { "requires": [ { "key": "kernel", "version": ">=3.0.0 <4.0.0" } ] },
+  "tenancy":         { "isolation": "shared", "rls_column": "organization_id" },
+  "capabilities":    [ { "kind": "db:write", "target": "addon_inventory.*" } ],
+  "models":          [ { "key": "Product", "table": "products", "columns": [...] } ],
+  "contributions":   { "navigation": [...], "slots": [...], "actions": [...], "subscriptions": [...] },
+  "extension_points":{ "events": [...], "slot_kinds": [...], "model_extensions_accepted": [...] },
+  "lifecycle":       { "install": "Install", "upgrade": [...], "uninstall": "Uninstall" },
+  "i18n":            { "default_locale": "es-MX", "bundles": [...] },
+  "rbac":            { "roles": [...], "permissions": [...] },
+  "settings":        [ { "key": "...", "type": "number", "description": "..." } ],
+  "billing":         { "metered_events": [...] },
+  "signature":       { "algorithm": "ed25519", "key_id": "...", "value": "...", "signed_at": "..." }
+}
+```
+
+## Metadata
+
+`metadata` lleva la identidad y los campos de cara al catálogo:
+
+- `key` — identificador estable y único globalmente (`^[a-z][a-z0-9_]{1,63}$`). Define el schema Postgres `addon_<key>` y el namespace de rutas.
+- `name`, `version` (semver), `description`, `category`, `author`, `website`, `license`, `icon`, `screenshots`, `features`.
+- `i18n` — overrides por locale de los strings del catálogo (name/description), para que el marketplace renderice el addon en `es` o `en`.
+- `countries` — códigos de país ISO opcionales que acotan el addon a regiones específicas en el catálogo.
+
+## Models
+
+Un modelo mapea a una tabla de base de datos. El instalador lo lee, genera el DDL y lo ejecuta dentro de una transacción de migración. Los identificadores usan casing con **guión bajo** (SQL).
 
 ```json
 {
-  "name": "tickets",
-  "displayName": "Tickets",
+  "key": "Ticket",
+  "table": "tickets",
+  "label": "tickets.model.ticket",
   "columns": [
-    { "name": "id",         "type": "uuid",      "primaryKey": true },
-    { "name": "title",      "type": "string",    "required": true, "max": 200 },
-    { "name": "status",     "type": "enum",      "values": ["open","closed"], "default": "open" },
-    { "name": "assignee",   "type": "string",    "label": "Assigned to" },
-    { "name": "created_at", "type": "timestamp", "default": "now()" }
+    { "name": "id",         "type": "uuid",        "primary_key": true, "default": "gen_random_uuid()" },
+    { "name": "organization_id", "type": "uuid",   "not_null": true },
+    { "name": "title",      "type": "text",        "not_null": true, "comment": "Resumen corto" },
+    { "name": "status",     "type": "text",        "default": "'open'" },
+    { "name": "created_at", "type": "timestamptz", "not_null": true, "default": "now()" }
   ],
-  "indexes": [
-    { "columns": ["status"] },
-    { "columns": ["assignee", "created_at"] }
+  "indices": [ { "name": "tickets_org_status_idx", "columns": ["organization_id", "status"] } ],
+  "foreign_keys": [
+    { "columns": ["assignee_id"], "references": { "model": "core.User", "columns": ["id"] }, "policy": "physical" }
   ]
 }
 ```
 
-Los tipos de columna incluyen `string`, `text`, `int`, `float`, `double`, `bool`, `uuid`, `timestamp`, `date`, `enum`, `json`, `ref`. Cada tipo tiene su propio set de validadores; el runtime los aplica en cada escritura.
+Los tipos de columna mapean a Postgres (`uuid`, `text`, `numeric`, `boolean`, `timestamptz`, `jsonb`, …). Cada columna acepta `not_null`, `unique`, `default` (validado contra un whitelist de literales) y `comment`. Las foreign keys llevan un `policy` — `physical` (un FK real) o `logical` (validado por el runtime, sin constraint en la DB).
 
 ## Capabilities
 
@@ -60,94 +92,107 @@ Las capabilities son el **contrato del addon con el runtime**. Declaran qué sub
 
 ```json
 "capabilities": [
-  { "kind": "db:read",    "target": "tickets" },
-  { "kind": "db:write",   "target": "tickets" },
+  { "kind": "db:read",    "target": "addon_tickets.*" },
+  { "kind": "db:write",   "target": "addon_tickets.*" },
   { "kind": "event:emit", "target": "tickets.changed" },
   { "kind": "http:fetch", "target": "https://api.example.com/*", "reason": "fetch external data" }
 ]
 ```
 
-Cada capability tiene un `kind`, un `target` y opcionalmente una `reason` (que se le muestra a los operadores durante la instalación). La lista completa de kinds está en [SDK docs / capabilities](https://asteby.github.io/metacore-sdk/manifest-spec#capabilities).
+El set cerrado de kinds es: `db:read`, `db:write`, `http:fetch`, `event:emit`, `event:subscribe`, `fs:read`, `secrets:read`, `cron:register`, `queue:produce`, `queue:consume`, `file-storage:write`, `time:wallclock`. El schema propio del addon (`addon_<key>.*`) siempre es accesible — nunca lo declares. Las lecturas/escrituras cross-schema necesitan un grant explícito (`db:read public.users`, etc.).
 
-El kernel ejecuta el enforcer en dos modos:
+Cada capability tiene un `kind`, un `target` y opcionalmente un `reason` (mostrado a los operadores al instalar). La lista completa de kinds y la sintaxis de targets está en el [WASM ABI del kernel](https://asteby.github.io/metacore-kernel/wasm-abi). El kernel corre el enforcer en modo **shadow** (registra violaciones, permite) o **enforce** (bloquea la llamada).
 
-- **Shadow** — registra las violaciones en logs pero las permite. Se usa en desarrollo.
-- **Enforce** — bloquea la llamada. Se usa en producción.
+## RBAC: permisos y roles
 
-## Permissions vs capabilities
-
-Estas dos cosas son fáciles de confundir:
-
-| | Capability | Permission |
-|---|---|---|
-| **Quién la tiene** | El addon (declarada en el manifest) | El usuario (otorgada en runtime) |
-| **Qué controla** | Qué subsistemas puede tocar el addon | Qué acciones puede tomar un usuario |
-| **Dónde se aplica** | Security enforcer del kernel | Permission service del kernel |
-| **Ejemplo** | `db:write` sobre `tickets` | `tickets.delete` para el usuario u_42 |
-
-Una llamada tiene que pasar ambos chequeos. Aunque el addon tenga `db:write`, el usuario igual necesita el permission. Ver [concepto de Permisos](/es/concepts/permissions) para el modelo completo.
-
-## Actions
-
-CRUD cubre lecturas y escrituras; las actions cubren todo lo demás — operaciones masivas, integraciones, side effects, cualquier cosa que no sea una mutación de fila.
+Donde las capabilities restringen al *addon*, RBAC restringe al *usuario*. v3 declara tanto roles de primera clase como los permisos que agrupan:
 
 ```json
-{
+"rbac": {
+  "permissions": [
+    { "key": "tickets.read",  "label": "Leer tickets" },
+    { "key": "tickets.write", "label": "Crear / actualizar / borrar tickets" }
+  ],
+  "roles": [
+    { "key": "tickets_agent", "label": "tickets.role.agent",
+      "permissions": ["tickets.read", "tickets.write"] }
+  ]
+}
+```
+
+Una llamada tiene que pasar ambos ejes. Aunque el addon tenga `db:write`, el usuario igual necesita el permiso. Ver [Permisos](/es/concepts/permissions) para el modelo completo.
+
+## Contributions
+
+`contributions` es el lado consumidor del acoplamiento entre addons — todo lo que el addon agrega a la superficie del host.
+
+### Actions
+
+CRUD cubre lecturas y escrituras; las acciones cubren todo lo demás — operaciones bulk, integraciones, side effects.
+
+```json
+"contributions": {
   "actions": [
     {
-      "id": "close-with-reason",
-      "label": "Close ticket",
-      "target": "tickets",
-      "scope": "row",
-      "permission": "tickets.edit",
-      "input": [
-        { "name": "reason", "type": "string", "required": true }
-      ]
-    },
-    {
-      "id": "import-csv",
-      "label": "Import",
-      "target": "tickets",
-      "scope": "table",
-      "permission": "tickets.create",
-      "input": [
-        { "name": "file", "type": "file", "accept": "text/csv" }
-      ]
+      "key": "close_with_reason",
+      "label": "tickets.action.close",
+      "target_model": "Ticket",
+      "confirm": true,
+      "fields": [
+        { "name": "reason", "type": "text", "required": true }
+      ],
+      "handler": { "type": "wasm", "function": "CloseWithReason" }
     }
   ]
 }
 ```
 
-El kernel monta `POST /api/addons/:id/_actions/:action.id`. El runtime renderiza un botón (con un diálogo si hay input) en el scope correcto — por fila o por tabla. El cuerpo de la acción es tu código: una función Go en el addon, llamada con los inputs parseados y los servicios del kernel.
+Una acción puede manejar su UI de tres formas: un prompt de **`confirm`**, un modal genérico autoconstruido desde **`fields`** declarativos, o un **`modal`** frontend custom (por slug). Los fields soportan los tipos de input habituales más **grupos de line-items** (un grupo repetible declarativo — p. ej. líneas de factura). El kernel monta `POST /api/dynamic/:model/:id/actions/:key`; el runtime renderiza el botón en el scope correcto y el cuerpo de la acción es tu código.
 
-## Frontend slots
+### Navigation, slots y subscriptions
 
-Los slots permiten que un addon contribuya componentes React personalizados a la UI de un host sin que el host conozca al addon de antemano. Un uso típico es sobrescribir la vista de detalle por defecto:
+- `navigation[]` — dónde aparece el addon en la nav del host. Un item de nav con un `model` queda cableado al CRUD dinámico sin código frontend.
+- `slots[]` — el addon aporta un componente React a un **`slot_kind` publicado** que es propiedad de otro addon (o del host). El host lo renderiza vía `<Slot name="..." />`; el acoplamiento es por slot kind tipado, nunca por path de import.
+- `subscriptions[]` — el addon reacciona a un evento publicado con un `handler` (`wasm` / `webhook`), opcionalmente filtrado. Esto reemplaza los mapas free-form de hooks CRUD de v2.
+
+## Extension points
+
+`extension_points` es el lado publicador: lo que *este* addon ofrece para que otros lo extiendan.
+
+- `events[]` — eventos nombrados a los que otros addons pueden suscribirse, cada uno con un `payload_schema`.
+- `slot_kinds[]` — superficies de UI tipadas que este addon posee, cada una con un `props_schema`.
+- `model_extensions_accepted[]` — los modelos que optan por permitir que otros addons les agreguen columnas.
+
+El kernel rechaza suscripciones a eventos no declarados, contribuciones a slot kinds no declarados y extensiones de modelos que no optaron.
+
+## Tenancy
 
 ```json
-"frontend": {
-  "slots": [
-    { "name": "tickets.detail", "component": "./src/TicketDetail.tsx" }
-  ]
-}
+"tenancy": { "isolation": "shared", "rls_column": "organization_id" }
 ```
 
-El host renderiza `<Slot name="tickets.detail" />`; si el addon está instalado y provee ese slot, su componente aparece. Si no, el slot cae en su default.
+`shared` (el default, correcto para ~95% de los addons) mantiene a todos los tenants en un schema con una `rls_column` y una policy RLS de Postgres que filtra por la org actual. `schema` crea un schema por instalación; `database` está reservado.
 
-## Lo que no está en el manifest
+## Settings, billing, signature
 
-- **Lógica de negocio.** Validadores personalizados, cuerpos de actions, integraciones — todo en Go (o Go compilado a WASM) dentro del addon, no en JSON.
-- **Layouts de UI personalizados.** Más allá de los slots, el frontend del host es libre de renderizar lo que quiera por encima de los hooks del SDK.
+- `settings[]` — valores configurables por instalación. v3 agrega `description` y un tipo `number` junto a `string`, `select`, `boolean`, etc. `secret: true` mantiene el valor del lado del server.
+- `billing.metered_events[]` — metering declarado en el manifest con un `revenue_share`. (El `price` free-form de v2 desapareció; el pricing vive acá y en el marketplace.)
+- `signature` — firma ed25519 con `key_id` y `signed_at`, verificada antes de desempaquetar el bundle. Los manifests sin firmar instalan solo en modo dev (`KERNEL_ALLOW_UNSIGNED=1`).
+
+## Compatibilidad con v2
+
+**Escribí v3.** Es el contrato canónico — `apiVersion: asteby.com/v3` es la forma que describe esta página y la superficie donde aterriza cada feature nueva (presets, action modals, line-items, roles RBAC, `metadata.i18n`/`countries`).
+
+Por compatibilidad, el **kernel dual-lee v2**: desde v0.13 el instalador también acepta manifests v2 legacy (sin `apiVersion`, con `key`/`model_definitions`/rango `kernel` planos) y los up-convierte transparentemente a la forma v3 en memoria, así los addons viejos siguen instalando y corriendo mientras el ecosistema migra. El tooling del SDK (CLI, scaffolder, examples) está **migrando para emitir v3**; hasta que eso aterrice puede que todavía veas output v2 en algunos flujos. El kernel **4.x** quita v2 por completo. El mapeo campo por campo está en la [guía de migración v2→v3 del kernel](https://asteby.github.io/metacore-kernel/).
+
+## Qué no está en el manifest
+
+- **Lógica de negocio.** Validadores custom, cuerpos de acciones, integraciones — todo en Go (o Go compilado a WASM), no en JSON.
+- **Cableado de federation.** La selección de runtime `frontend`/`backend` vive en el manifest del *bundle* que lee el loader, no en el contrato entre addons.
 - **Config por deployment.** Variables de entorno, secrets, feature flags — no son asunto del addon.
-
-## Referencia completa
-
-Esta página es la visión conceptual. La spec completa del manifest — cada campo, cada tipo, cada validador — está en los SDK docs:
-
-[SDK docs / manifest spec →](https://asteby.github.io/metacore-sdk/manifest-spec)
 
 ## Relacionado
 
-- [CRUD dinámico](/es/concepts/dynamic-crud) — qué hace el runtime con `tables[]`.
-- [Permisos](/es/concepts/permissions) — modelo de capability + por usuario.
-- [Ciclo de vida](/es/concepts/lifecycle) — qué pasa cuando un manifest cambia entre versiones.
+- [CRUD dinámico](/es/concepts/dynamic-crud) — qué hace el runtime con `models[]`.
+- [Permisos](/es/concepts/permissions) — modelo capability + RBAC.
+- [Lifecycle](/es/concepts/lifecycle) — qué pasa cuando un manifest cambia entre versiones.

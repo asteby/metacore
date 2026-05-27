@@ -11,7 +11,7 @@ Metacore deliberately does not ship a host. Hosts are where your product lives, 
 Every host, regardless of shape, has the same three responsibilities:
 
 1. **Embed the kernel.** A Go binary imports `metacore-kernel` and mounts its routes. Everything CRUD-shaped — list, get, create, update, delete, metadata, real-time — comes from the kernel.
-2. **Render addon UIs.** A Vite + React frontend imports `@asteby/metacore-runtime-react` and uses `<DynamicTable>`, `<DynamicForm>`, `<DynamicDetail>`, and `<Slot>` to render whatever addons are installed.
+2. **Render addon UIs.** A Vite + React frontend imports `@asteby/metacore-runtime-react` and uses `<DynamicTable>`, `<DynamicForm>`, `<DynamicCRUDPage>`, and `<Slot>` to render whatever addons are installed.
 3. **Provide identity, layout, and brand.** Auth, navigation shell, theming, and any non-addon screens (login, settings, billing, etc.).
 
 Everything else — the per-addon screens, the schema, the permission checks, the lifecycle — is handled by the kernel and the SDK reading the manifest. A host has no per-addon code.
@@ -66,7 +66,7 @@ Independent of shape, the kernel + SDK provide:
 - **Lifecycle.** Hot install, upgrade, uninstall — no restart.
 - **WASM sandbox.** Untrusted addon code runs isolated.
 - **Real-time fanout.** WebSocket hub mounted automatically.
-- **Typed UI primitives.** `<DynamicTable>`, `<DynamicForm>`, `<DynamicDetail>`, `<Slot>`, plus 12+ supporting packages (forms, dialogs, navigation, charts, theme, etc.).
+- **Typed UI primitives.** `<DynamicTable>`, `<DynamicForm>`, `<DynamicCRUDPage>`, `<Slot>`, plus supporting packages (UI kit, theme, i18n, auth, app-providers, websocket, notifications, etc.).
 - **Audit pipe.** Structured stream of every CRUD op, capability check, and permission decision.
 
 A typical host is **400–800 lines** of code total: layout, navigation, auth screens, plus configuration. Everything else comes from the SDK + the kernel.

@@ -8,16 +8,16 @@ Un addon pasa por tres momentos en runtime: **install**, **upgrade**, **uninstal
 
 Cuando llega un `.mcbundle` (subido vía API, dejado en `BundleDir`, o registrado en código como un addon embedded), el installer corre:
 
-1. **Verificar** — firma del bundle, schema del manifest, formato de versión.
-2. **Resolver dependencies** — cada entrada en `manifest.dependencies[]` ya tiene que estar instalada en una versión compatible. Si no, el install se rechaza.
-3. **Chequeo de conflictos** — los nombres de tabla, los targets de capability y los IDs de permission no deben colisionar con addons instalados.
+1. **Verificar** — firma del bundle (ed25519), validación del manifest (v3 estricto, o v2 up-convertido), formato de versión.
+2. **Resolver dependencies** — cada `compatibility.requires[]` debe satisfacerse: `key: "kernel"` contra la versión del host, y cualquier otro `key` contra un addon instalado en un rango semver compatible. Las entradas `optional: true` no fallan el install si faltan.
+3. **Chequeo de conflictos** — los nombres de tabla, los targets de capability y las keys de permission no deben colisionar con addons instalados.
 4. **Abrir transacción** — cada paso de abajo corre dentro de una sola transacción de DB.
-5. **Aplicar DDL** — para cada entrada de `tables[]`, generar `CREATE TABLE` + indexes + foreign keys. Los mapeos de tipos (uuid, timestamp, enum, etc.) son conscientes del dialecto (Postgres / SQLite).
-6. **Registrar metadata** — schema de columnas, declaraciones de capability, IDs de permission, rutas de actions.
-7. **Correr install hook** — si el addon define `lifecycle.install`, el kernel lo llama (en WASM si el addon trae un módulo WASM, in-process si es un addon embedded).
-8. **Montar rutas** — CRUD dinámico, actions, endpoints de slots de frontend.
-9. **Cargar WASM** — si está presente, instanciar el módulo en wazero con su set de capabilities.
-10. **Commit** — el addon ya está vivo.
+5. **Aplicar DDL** — para cada entrada de `models[]`, generar `CREATE TABLE` + indexes + foreign keys en el schema Postgres del addon (`addon_<key>`). `dynamic.EnsureSchema → Apply` es idempotente.
+6. **Registrar metadata** — schema de columnas, declaraciones de capability, permisos/roles RBAC, rutas de actions.
+7. **Correr install hook** — si el manifest declara `lifecycle.install` (un nombre de función como `"Install"`), el kernel lo despacha (en WASM si el addon trae un módulo, in-process si es embedded). Un error no-nil aborta.
+8. **Proyectar hooks CRUD** — las `contributions.subscriptions[]` se registran en el hook registry.
+9. **Montar rutas** — CRUD dinámico, actions, endpoints de slots de frontend.
+10. **Commit** — el addon ya está vivo, y el kernel emite un `ManifestChangeEvent` para que los frontends del SDK tiren su cache de metadata sin pollear.
 
 Si cualquier paso falla, la transacción rollbackea. El host queda exactamente como estaba; no hay install parcial.
 
@@ -27,45 +27,48 @@ Opcionales. Se usan para setup único que el DDL solo no puede expresar — semb
 
 ```json
 "lifecycle": {
-  "install": "./go/install.go"
+  "install":   "Install",
+  "uninstall": "Uninstall",
+  "enable":    "Enable",
+  "disable":   "Disable"
 }
 ```
 
-El hook recibe el contexto del installer del kernel (handle de DB, KV, secret store, helpers de identity) y devuelve un error para abortar el install.
+Cada valor es un **nombre de función exportada** que provee el backend WASM (o el Go embedded) del addon — no un path de archivo. El hook recibe el contexto del installer y devuelve un error para abortar el install.
 
 ## Upgrade
 
-Cuando llega una nueva versión de un addon instalado, el installer:
+`Installer.Upgrade(ctx, orgID, newBundle)` maneja la transición (el evento de lifecycle `upgrade` lo dispara el installer, no `Install`):
 
-1. **Comparar versiones** — mismo `manifest.id`, `version` mayor. Las versiones más viejas se rechazan por defecto (el downgrade requiere un flag explícito).
-2. **Diff de manifests** — a nivel tabla, columna, permission. El diff es la fuente de verdad para qué migrations correr.
-3. **Planificar migrations** — las adiciones son seguras (columnas nuevas, indexes nuevos, permissions nuevos); cambios y removals requieren manejo explícito. Algunos están bloqueados directamente (p.ej. cambiar el tipo de una primary key) sin una migration declarada en el manifest.
-4. **Abrir transacción.**
-5. **Aplicar diff de DDL** — `ADD COLUMN`, `CREATE INDEX`, etc. Consciente del dialecto.
-6. **Correr upgrade hook** — si está definido, llamado con la versión previa + la nueva. Se usa para migraciones de datos (p.ej. backfillear una columna nueva desde una vieja).
-7. **Actualizar metadata** — nuevo schema de columnas, nuevos IDs de permission, nuevas rutas de action.
-8. **Recargar WASM** — el módulo viejo se desmonta, el nuevo se instancia.
-9. **Commit.**
+1. **Verificar** la firma del nuevo bundle y revalidar el manifest. Los errores de guarda (`ErrNotInstalled`, `ErrSameVersionUpgrade`, `ErrCannotDowngrade`) aparecen **antes de cualquier mutación**.
+2. **Comparar versiones** — mismo `metadata.key`, `version` mayor. Los downgrades se rechazan.
+3. **Despachar `upgrade` (fase `before`)** — el payload lleva `from_version` / `to_version`. Un error no-nil aborta: la fila queda intacta, no corre trabajo de schema.
+4. **Aplicar schema** — `EnsureSchema → Apply → CreateTable / SyncSchema` sobre el manifest nuevo. Aditivo: las columnas viejas sobreviven; las migrations ya registradas se saltean.
+5. **Re-proyectar hooks CRUD** — las suscripciones viejas se desregistran y se registra la forma nueva.
+6. **Persistir el bump de versión** con un merge de settings — los valores ajustados por el usuario ganan; los defaults nuevos del manifest se agregan.
+7. **Despachar `upgrade` (fase `after`)** — con un contador `migrations_applied`. Los errores de `after` se loguean y se tragan (el upgrade ya commiteó; el rollback de DDL es inseguro).
+8. **Emitir `ManifestChangeEvent`** para que los frontends del SDK tiren su cache de metadata.
 
-Misma garantía de atomicidad: una falla rollbackea el upgrade entero.
+### Escalera de upgrade
 
-### Upgrade hooks
+El manifest declara una escalera de migraciones matcheada por semver. Cada paso matchea la versión *registrada* contra `from`:
 
 ```json
 "lifecycle": {
   "upgrade": [
-    { "from": "0.1.0", "to": "0.2.0", "hook": "./go/upgrade_0_1_to_0_2.go" }
+    { "from": ">=1.0.0 <1.3.0", "type": "wasm", "function": "MigrateTo_1_3" },
+    { "from": ">=1.3.0 <2.0.0", "type": "sql",  "function": "migrations/1_3_to_2_0.sql" }
   ]
 }
 ```
 
-Se pueden encadenar múltiples hooks; el installer los aplica en orden, salteando los que no matchean la versión actual. Cada uno corre en su propio savepoint.
+`type: "wasm"` llama a una función exportada por el backend del addon; `type: "sql"` corre un archivo SQL goose-compatible del bundle. (Un `kind: "Preset"` no puede declarar `lifecycle.upgrade[]`.)
 
 ### Lo que está bloqueado sin una migration explícita
 
-- Cambiar el tipo de una columna (excepto ampliarlo, p.ej. `int → bigint`)
-- Remover una columna `primaryKey: true`
-- Remover una columna referenciada por columnas `ref` de otro addon
+- Cambiar el tipo de una columna (excepto ampliarlo, p.ej. `integer → bigint`)
+- Remover una columna `primary_key: true`
+- Remover una columna referenciada por las foreign keys de otro modelo
 - Remover un permission que está actualmente otorgado a usuarios (los datos existen)
 
 Estos se exponen como errores de install con mensajes claros; el autor del addon tiene que declarar una migration que los maneje.
@@ -79,31 +82,33 @@ Revierte el install:
 3. **Correr uninstall hook** — si está definido. Se usa para limpiar recursos externos (deregistrar webhooks, cancelar entradas de cron).
 4. **Desmontar WASM** — módulo expulsado, sandbox cerrado.
 5. **Desmontar rutas** — CRUD dinámico, actions, slots.
-6. **Tirar el schema** — `DROP TABLE` para cada entrada de `tables[]`. Por defecto el kernel **no** tira las tablas; las renombra con un sufijo `_tombstone` y un timestamp, para que un operador pueda restaurar los datos si el uninstall fue un error. Un flag `--purge` las tira directamente.
+6. **Tirar el schema** — `DROP TABLE` para cada entrada de `models[]`. Por defecto el kernel **no** tira las tablas; las renombra con un sufijo `_tombstone` y un timestamp, para que un operador pueda restaurar los datos si el uninstall fue un error. Un flag `--purge` las tira directamente.
 7. **Remover metadata** — capabilities, permissions, declaraciones de actions.
 8. **Commit.**
 
 ### Uninstall hooks
 
 ```json
-"lifecycle": {
-  "uninstall": "./go/uninstall.go"
-}
+"lifecycle": { "uninstall": "Uninstall" }
 ```
 
-El hook corre **antes** de cualquier teardown del schema, así que tiene acceso completo a los datos.
+El hook (un nombre de función exportada) corre **antes** de cualquier teardown del schema, así que tiene acceso completo a los datos.
 
 ## Lo que ven los hosts
 
-La API de installer del host expone el resultado de cada paso — el log de migration, output del hook, árbol de dependencies al momento del install, plan de diff al momento del upgrade. Una UI de admin de host típicamente renderiza esto como un timeline usando `GET /api/installs/:id`.
+La API de installer del host expone el resultado de cada paso — el log de migration, output del hook, árbol de dependencies al momento del install. Los installs viven bajo `/api/metacore/installations`; el endpoint de upgrade es `PUT /api/metacore/installations/:key/version` (subida de bundle multipart). Una UI de admin de host típicamente renderiza el historial como un timeline.
 
 ## Versionado
 
 Las versiones son semver. El kernel no aplica la semántica de semver (es decir, no chequea que un bump de major version sea "realmente" breaking) — eso lo posee el autor del addon. Lo que sí aplica:
 
-- Las versiones son estrictamente monótonas por addon ID
+- Las versiones son estrictamente monótonas por `metadata.key` del addon
 - Las migrations se declaran entre versiones consecutivas
 - Las firmas del bundle matchean la versión que reclaman
+
+## Una nota sobre Presets
+
+Instalar un `kind: "Preset"` es una sola transición que resuelve e instala sus `preset.addons[]` en orden de dependencias, y después aplica los `defaults` (settings) del preset encima. Un preset es la unidad de distribución de un vertical — instalás uno, obtenés un set coherente de addons foundation cableados entre sí.
 
 ## Relacionado
 

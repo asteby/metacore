@@ -2,7 +2,7 @@
 
 A **host** is a product that sits on top of the kernel and exposes installed addons to users. Common shapes include an operator panel, a marketplace + admin surface, a customer-facing portal, an internal tool, or an embedded admin section inside an existing product. You build whichever fits your product — they all use the same primitives.
 
-This page is a recipe. The deep references for each layer live in the SDK and kernel docs.
+This page is a recipe. The fastest path is to start from the official starter and adjust; the deep references for each layer live in the SDK and kernel docs.
 
 [[toc]]
 
@@ -22,158 +22,116 @@ This page is a recipe. The deep references for each layer live in the SDK and ke
 └────────────────────────────────────────┘
                   │
                   ▼
-        installed addons (.mcbundle)
+        installed addons
 ```
 
 The host owns identity, layout, navigation shell, and any non-addon screens. The kernel owns runtime, persistence, permissions. Addons own features.
 
+## Start from the official starter
+
+The fastest way to a working host is the fullstack starter — `~50 LOC of Go` over `host.NewApp()` plus a React shell wired to the SDK:
+
+```sh
+npm create @asteby/metacore-app my-app -- --example fullstack-starter
+cd my-app
+docker compose up --build
+```
+
+This clones the `fullstack-starter` example, pins the latest published `@asteby/metacore-*` versions, and brings up `pgvector/pgvector:pg17` + the Go backend + the Vite frontend. Open http://localhost:5173 and sign in with the seeded admin. The rest of this page explains what that starter wires so you can reproduce it by hand or adapt it.
+
 ## Prerequisites
 
 - **Node.js 20+** and **pnpm 10+** (frontend)
-- **Go 1.22+** (backend)
-- A database (Postgres for production)
+- **Go 1.25+** (backend)
+- **PostgreSQL** (production)
 
 ## 1. Backend — embed the kernel
 
-Start with the [embed-the-runtime](/getting-started/embed-the-runtime) recipe. A host backend is the same thing plus your auth middleware, your business endpoints, and any first-party addons compiled in.
+A host backend is the [embed-the-runtime](/getting-started/embed-the-runtime) recipe plus your auth and business endpoints. `host.NewApp(host.AppConfig{...})` returns the configured kernel; `app.Mount(fiberApp.Group("/api"))` wires every kernel route under `/api` and returns the group so you can hang your own routes off it. First-party models are registered in code with `app.RegisterModel(...)`; installed addons arrive as bundles.
 
-```go
-app, _ := host.NewApp(host.Config{
-    DatabaseURL: os.Getenv("DATABASE_URL"),
-    BundleDir:   "./bundles",
-    Listen:      ":8080",
-})
+## 2. Frontend — the SDK app shell
 
-app.HTTP.Use(yourAuthMiddleware)              // sets kernel.Identity on ctx
-app.HTTP.Mount("/api/auth", authRoutes(...))  // your own routes
-app.Mount("/api", kernel.Router(app.Kernel))  // kernel under /api
-app.Run()
-```
-
-For first-party features, register an embedded addon in code so it ships with the binary instead of as a `.mcbundle`:
-
-```go
-app.Kernel.RegisterAddon(builtins.Notifications())
-```
-
-## 2. Frontend — Vite + React + SDK
-
-```bash
-pnpm create vite my-host -- --template react-ts
-cd my-host
-pnpm add @asteby/metacore-runtime-react @asteby/metacore-runtime-core \
-        @tanstack/react-query react-router-dom
-```
-
-Wire the runtime in `main.tsx`:
+The starter's `main.tsx` bootstraps every provider with one component, `MetacoreAppShell` from `@asteby/metacore-app-providers` (QueryClient, the API client, PWA prompts, toaster, and metadata-cache invalidation), over a TanStack Router:
 
 ```tsx
-import { MetacoreProvider } from '@asteby/metacore-runtime-react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter } from 'react-router-dom'
-import App from './App'
+import ReactDOM from 'react-dom/client'
+import { RouterProvider } from '@tanstack/react-router'
+import { MetacoreAppShell } from '@asteby/metacore-app-providers'
+import { router, queryClient } from './router'
+import { api } from './lib/api'
+import './lib/i18n'
+import './styles/index.css'
 
-const queryClient = new QueryClient()
-
-createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={queryClient}>
-    <MetacoreProvider config={{
-      apiBase: '/api',
-      wsUrl:   '/api/ws',
-      auth:    { tokenProvider: () => sessionStorage.getItem('jwt') },
-    }}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </MetacoreProvider>
-  </QueryClientProvider>
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <MetacoreAppShell api={api} queryClient={queryClient}>
+    <RouterProvider router={router} />
+  </MetacoreAppShell>,
 )
 ```
 
-The provider gives every descendant access to:
-
-- **`useDynamicQuery`** / **`useDynamicMutation`** — the CRUD hooks.
-- **`useAddons`** — list installed addons + their metadata.
-- **`useCapabilities`** — what the current user can do.
-- **`<DynamicTable>`** / **`<DynamicForm>`** / **`<DynamicDetail>`** — the typed UI primitives.
-- **`<Slot>`** — render addon-provided React components.
-
-## 3. The addon shell
-
-Most hosts have a layout like this:
+The API client comes from the auth package — it sends the token and the active language so the kernel can localise metadata:
 
 ```tsx
-import { useAddons } from '@asteby/metacore-runtime-react'
-import { Routes, Route, NavLink } from 'react-router-dom'
-import { AddonView } from './AddonView'
+// lib/api.ts
+import { createApiClient } from '@asteby/metacore-auth/api-client'
+import { useAuthStore } from '@asteby/metacore-auth/store'
+import i18n from './i18n'
 
-export default function App() {
-  const { addons } = useAddons()
-
-  return (
-    <div className="layout">
-      <nav>
-        {addons.map(a => (
-          <NavLink key={a.id} to={`/addons/${a.id}`}>{a.displayName}</NavLink>
-        ))}
-      </nav>
-      <main>
-        <Routes>
-          <Route path="/addons/:addonId/*" element={<AddonView />} />
-        </Routes>
-      </main>
-    </div>
-  )
-}
+export const api = createApiClient({
+  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:7200/api',
+  getToken: () => useAuthStore.getState().auth.accessToken,
+  getLanguage: () => i18n.language,
+  onUnauthorized: () => useAuthStore.getState().auth.reset(),
+})
 ```
 
-`<AddonView>` composes the addon's UI from its registered slots — most have a default `index` slot rendering a `<DynamicTable>` for the addon's primary table:
+The packages a typical host pulls in: `@asteby/metacore-runtime-react` (dynamic CRUD), `@asteby/metacore-auth`, `@asteby/metacore-app-providers`, `@asteby/metacore-ui` (layout shell, command menu, data-table primitives), `@asteby/metacore-theme`, `@asteby/metacore-i18n`, `@asteby/metacore-websocket`, `@asteby/metacore-notifications`, and optionally `@asteby/metacore-pwa`, `@asteby/metacore-billing`, `@asteby/metacore-marketplace`, `@asteby/metacore-webhooks`.
+
+## 3. The dynamic page
+
+Every model is a one-liner. The starter has a single dynamic route, `/_authenticated/m/$model`, that renders the kernel-driven CRUD page for whatever model is in the URL:
 
 ```tsx
-import { useParams } from 'react-router-dom'
-import { Slot, DynamicTable } from '@asteby/metacore-runtime-react'
+import { createFileRoute } from '@tanstack/react-router'
+import { DynamicCRUDPage } from '@asteby/metacore-runtime-react'
 
-export function AddonView() {
-  const { addonId } = useParams()
-  return (
-    <Slot name={`${addonId}.index`} fallback={
-      <DynamicTable addon={addonId!} table="default" />
-    } />
-  )
-}
+export const Route = createFileRoute('/_authenticated/m/$model/')({
+  component: () => <DynamicCRUDPage model={Route.useParams().model} />,
+})
 ```
+
+`DynamicCRUDPage` is the table + create/edit/view dialogs + actions, all driven by `/api/metadata/table/:model` and `/api/dynamic/:model`. The sidebar is built from the addon manifests' navigation contributions — `useNavigation` resolves the nav tree, gated per user. To contribute addon-provided React, render `<Slot name="..." />`.
 
 ## 4. Tailwind, CSS, branding
 
-The SDK ships its own design tokens (compatible with Tailwind v4). When using Tailwind, declare the SDK as a source so its utility classes survive purging:
+The SDK ships design tokens via `@asteby/metacore-theme` (Tailwind v4 preset, oklch tokens, dark mode). When consuming the SDK packages, declare them as Tailwind sources so their utility classes survive purging — otherwise addon UIs render unstyled:
 
 ```css
-/* main.css */
+/* styles/index.css */
 @import "tailwindcss";
 @source "../node_modules/@asteby/metacore-runtime-react";
+@source "../node_modules/@asteby/metacore-ui";
 ```
 
-This is one of the most-skipped steps; without it, addon UIs render with broken styles.
+This is one of the most-skipped steps. The starter's `@asteby/metacore-starter-config` ships the shared Vite/Tailwind/TS config — including `metacoreOptimizeDeps`, which Vite needs to pre-bundle linked `@asteby/metacore-*` packages.
 
 ## 5. Auth + identity
 
 The kernel stays neutral on auth. A host typically:
 
-1. Hosts its own `/login` (email + password, OAuth, SSO — your call).
+1. Hosts its own sign-in (`@asteby/metacore-auth` ships login/signup/forgot pages and guards for TanStack Router).
 2. Issues a JWT or session.
-3. Sends it on every request via the SDK's `tokenProvider`.
-4. Verifies it in the backend middleware and sets `kernel.Identity` on the request context.
-
-The kernel uses that identity for every CRUD call: capability checks, per-user permission checks, audit logging.
+3. Sends it on every request via the API client's `getToken`.
+4. Verifies it in the backend; the kernel's `AuthUserProvider` resolves user/org/roles for every CRUD call.
 
 ## 6. Production checklist
 
 - HTTPS / TLS termination in front of the Go binary
 - A real database (Postgres) with backups
 - Bundle signing keys managed via your secret store
-- Observability — the kernel exports OpenTelemetry traces out of the box
-- Health checks (`/health`) and readiness probes
-- Bundle directory mounted from persistent storage
+- Observability — the kernel exposes `/api/metrics`
+- Health checks and readiness probes
+- Build the frontend with the right `VITE_API_URL` for the target (the appliance/relative-API gotcha bites here)
 
 ## Common host shapes
 

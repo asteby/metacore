@@ -4,69 +4,72 @@
 
 ## What it provides
 
-The SDK ships **16 npm packages** under the `@asteby/metacore-*` scope. They split along three axes:
+The SDK publishes a set of packages under the `@asteby/metacore-*` scope, plus the addon CLI. They split along a few axes:
 
-### Contracts
-
-| Package | What it is |
-|---|---|
-| `@asteby/metacore-manifest` | The manifest schema (Zod), validators, types |
-| `@asteby/metacore-bundle` | Bundle format, signing, verification |
-| `@asteby/metacore-types` | Shared TypeScript types used across the runtime and the CLI |
-
-### Runtime (browser)
+### Runtime & rendering
 
 | Package | What it is |
 |---|---|
-| `@asteby/metacore-runtime-core` | Framework-agnostic client: HTTP, WebSocket, query layer |
-| `@asteby/metacore-runtime-react` | React bindings: provider, hooks, `<DynamicTable>`, `<DynamicForm>` and friends |
-| `@asteby/metacore-forms` | Form primitives + the dynamic form renderer |
-| `@asteby/metacore-tables` | Table primitives + the dynamic table renderer |
-| `@asteby/metacore-dialogs` | Modal / drawer primitives wired to action / confirm flows |
-| `@asteby/metacore-navigation` | Sidebar / breadcrumb / route helpers driven by addon metadata |
-| `@asteby/metacore-charts` | Chart primitives consuming dynamic-CRUD aggregations |
-| `@asteby/metacore-icons` | Icon set used by the rest of the SDK |
-| `@asteby/metacore-theme` | Design tokens, dark mode, Tailwind v4 source export |
-| `@asteby/metacore-i18n` | Translation helpers; addons declare strings, the runtime resolves them |
-| `@asteby/metacore-realtime` | WebSocket subscription helpers, used by the React hooks |
+| `@asteby/metacore-runtime-react` | The core: dynamic CRUD rendering — `<DynamicTable>`, `<DynamicForm>`, `<DynamicCRUDPage>`, `<Slot>`, federated addon loader, capability gate, hooks (`useApi`, `useMetadataCache`, `useNavigation`, `useOptions`, `useCapabilities`) |
+| `@asteby/metacore-sdk` | Frontend SDK: federated addon loader, slot registry, typed manifest & API client |
+| `@asteby/metacore-ui` | UI kit — data-table, layout shell, command menu, shadcn-based primitives |
+| `@asteby/metacore-theme` | Design tokens + Tailwind v4 preset (oklch, shadows, fonts, dark mode) |
+| `@asteby/metacore-i18n` | i18next factory, base ES/EN bundles, language switcher, RTL provider |
+| `@asteby/metacore-lib` | Utilities — date/currency/number formatting, error handling, cookies |
 
-### Authoring
+### App shell & integrations
 
 | Package | What it is |
 |---|---|
-| `@asteby/metacore-cli` | The `metacore-sdk` command — scaffold, build, sign, publish addons |
-| `@asteby/metacore-test-utils` | Test harnesses for addons (mock kernel, fixture data) |
+| `@asteby/metacore-app-providers` | `MetacoreAppShell` + transport-agnostic providers (platform-config, layout, search, direction, font) |
+| `@asteby/metacore-starter-core` | Shared providers, stores, hooks and context consumed by Vite+React host apps |
+| `@asteby/metacore-auth` | Auth kit — store, API client factory, login/signup/forgot pages, TanStack Router guards |
+| `@asteby/metacore-websocket` | WebSocket provider — auto-reconnect, typed messages, channel subscriptions |
+| `@asteby/metacore-notifications` | Notification dropdown, app badge, WebSocket-driven updates |
+| `@asteby/metacore-pwa` | PWA helpers — Vite plugin, install/update prompts, push, offline indicator |
+| `@asteby/metacore-webhooks` | Webhooks management UI — list, create, logs, test/replay, signing secrets |
+| `@asteby/metacore-billing` | Subscription state, Stripe checkout/portal hooks, billing settings UI |
+| `@asteby/metacore-marketplace` | Hub catalog + install/upgrade client, hooks, headless UI for addon discovery |
+| `@asteby/metacore-tools` | TypeScript client for the kernel's Tools runtime (LLM-triggered tools) |
 
-(Exact package count + names track [the SDK docs](https://asteby.github.io/metacore-sdk/) — this table is a high-level inventory.)
+### Build & authoring
+
+| Package | What it is |
+|---|---|
+| `@asteby/create-metacore-app` | `npm create @asteby/metacore-app` — scaffolds a full host from an example (e.g. `fullstack-starter`) |
+| `@asteby/metacore-starter-config` | Shared Vite + Tailwind 4 + TanStack Router + ESLint + TS config, incl. `metacoreOptimizeDeps` |
+
+The addon CLI itself is the **Go `metacore` tool** (`go install github.com/asteby/metacore-sdk/cli@latest`) — `init`, `validate`, `build`, `sign`, `publish`. (Exact versions + names track [the SDK docs](https://asteby.github.io/metacore-sdk/) — this is a high-level inventory.)
 
 ## What you reach for
 
-For most app builders, only two packages are direct dependencies:
+A host app frontend depends on the runtime plus the shell:
 
 ```bash
-pnpm add @asteby/metacore-runtime-react @asteby/metacore-runtime-core
+pnpm add @asteby/metacore-runtime-react @asteby/metacore-app-providers \
+         @asteby/metacore-auth @asteby/metacore-ui @asteby/metacore-theme
 ```
 
-Everything else is a transitive dep, reached through the runtime's exports.
+Or skip the manual wiring entirely and scaffold from the starter — `npm create @asteby/metacore-app my-app -- --example fullstack-starter`.
 
-## CLI quickstart
+## Scaffold a host
 
 ```bash
-pnpm dlx @asteby/metacore-cli init my-addon --template=basic
-pnpm metacore-sdk build
-pnpm metacore-sdk install ./dist/my-addon-0.1.0.mcbundle --host=http://localhost:8080
+npm create @asteby/metacore-app my-app -- --example fullstack-starter
+cd my-app
+docker compose up --build
 ```
 
-See [Build an addon](/getting-started/build-an-addon) for the full walkthrough.
+See [Build a host](/getting-started/build-a-host) for what it wires, and [Build an addon](/getting-started/build-an-addon) for the addon authoring loop.
 
 ## Stack
 
-- **TypeScript 5.5+**
-- **React 18+**
+- **TypeScript 5.x**
+- **React 18+** (the published packages run on React 19)
+- **TanStack Query** + **TanStack Router** + **TanStack Table** under the hood
 - **Zod** for runtime schema validation
-- **TanStack Query** under the hood for data fetching
-- **Vite** as the reference build tool for hosts (the SDK itself is framework-agnostic at the core layer)
-- **Tailwind v4** compatible — the theme package exports `@source` directives
+- **Vite** as the reference build tool for hosts (the core is framework-agnostic)
+- **Tailwind v4** — the theme package ships a preset and you declare SDK packages via `@source`
 
 ## Where the deep documentation lives
 

@@ -1,24 +1,27 @@
 # Embeber el runtime
 
-El kernel de Metacore es una librería Go. La importás, la configurás y montás sus rutas en tu server HTTP existente. No hay agente, no hay daemon, no hay SaaS — tu binario posee el runtime.
+El kernel de Metacore es una librería Go. La importás, le pasás un `*gorm.DB`, y montás sus rutas en un router [Fiber](https://gofiber.io/). No hay agente, no hay daemon, no hay SaaS — tu binario posee el runtime.
 
-Esta página es la receta mínima de embedding. El deep dive — cada opción de config, cada subsistema, la API de embedding completa — vive en las [docs del Kernel](https://asteby.github.io/metacore-kernel/).
+Esta página es la receta mínima de embedding. El detalle profundo — cada opción de config, cada subsistema, la API de embedding completa — vive en las [docs del Kernel](https://asteby.github.io/metacore-kernel/).
 
 [[toc]]
 
 ## Prerrequisitos
 
-- **Go 1.22+**
-- Una base de datos. SQLite para dev local, Postgres para producción. El kernel detecta el driver desde la connection string.
-- (Opcional) [TinyGo 0.30+](https://tinygo.org/) si vas a correr addons WASM.
+- **Go 1.25+**
+- **PostgreSQL 14+** — la base de datos soportada en producción. (SQLite se usa solo en los tests del propio kernel; el gating de SQL del runtime depende de Postgres.)
+- (Opcional) **TinyGo 0.31+** si vas a correr addons WASM.
 
-## 1. Inicializá el módulo
+## 1. Inicializar el módulo
 
 ```bash
 mkdir my-host && cd my-host
 go mod init github.com/me/my-host
 go get github.com/asteby/metacore-kernel@latest
+go get github.com/gofiber/fiber/v2 gorm.io/gorm gorm.io/driver/postgres
 ```
+
+> Buildear un host que embeba el runtime WASM del kernel necesita `CGO_ENABLED=1` (el kernel usa `pg_query` para el gating de SQL). Las imágenes Docker Alpine deben static-linkear contra musl.
 
 ## 2. El host mínimo viable
 
@@ -28,107 +31,115 @@ package main
 
 import (
     "log"
-    "net/http"
+    "os"
 
     "github.com/asteby/metacore-kernel/host"
-    "github.com/asteby/metacore-kernel/kernel"
+    "github.com/asteby/metacore-kernel/permission"
+    "github.com/gofiber/fiber/v2"
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
 )
 
 func main() {
-    app, err := host.NewApp(host.Config{
-        DatabaseURL: "postgres://user:pass@localhost/mydb?sslmode=disable",
-        BundleDir:   "./bundles",
-        Listen:      ":8080",
-    })
+    db, err := gorm.Open(postgres.Open(os.Getenv("DATABASE_URL")), &gorm.Config{})
     if err != nil {
-        log.Fatal(err)
+        log.Fatalf("db: %v", err)
     }
-    defer app.Close()
 
-    // Mount kernel routes under /api.
-    app.Mount("/api", kernel.Router(app.Kernel))
+    // Permission store sobre GORM — el default de producción.
+    permStore, err := permission.NewGormStore(db)
+    if err != nil {
+        log.Fatalf("permission store: %v", err)
+    }
 
-    // Your own routes alongside.
-    app.HTTP.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-        w.Write([]byte("ok"))
-    }))
+    app := host.NewApp(host.AppConfig{
+        DB:              db,
+        JWTSecret:       []byte(host.MustGetenv("JWT_SECRET")),
+        RunMigrations:   true,        // SQL versionado vía el migrations runner
+        EnableMetrics:   true,        // expone /api/metrics
+        EnableWebhooks:  true,
+        PermissionStore: permStore,   // activa las puertas CRUD a nivel usuario
+    })
+    defer app.Stop()
 
-    log.Fatal(app.Run())
+    fiberApp := fiber.New()
+    api := app.Mount(fiberApp.Group("/api"))
+
+    // Apilá tus propios endpoints de dominio encima de los del kernel.
+    api.Get("/me", func(c *fiber.Ctx) error {
+        return c.JSON(fiber.Map{"ok": true})
+    })
+
+    log.Fatal(fiberApp.Listen(":3000"))
 }
 ```
 
-Ese es todo el host. `host.NewApp` te da un kernel configurado, una conexión a base de datos, un runtime WASM, el hub WebSocket y el instalador. `kernel.Router` retorna un `http.Handler` que podés montar en cualquier lado.
+Ese es todo el host. `host.NewApp` te da un kernel configurado — CRUD dinámico, metadata, el runtime WASM, el hub WebSocket y el instalador. `app.Mount(group)` cablea todo eso sobre el group de Fiber que le pasás y lo devuelve para que cuelgues tus propias rutas del mismo prefijo.
 
 ## 3. Lo que acabás de obtener
 
-Después de correr `go run .`, el host expone:
+Después de `go run .`, el host expone (bajo `/api`):
 
 | Path | Qué es |
 |---|---|
-| `GET  /api/addons` | Lista los addons instalados |
-| `POST /api/addons` | Instala un `.mcbundle` (multipart upload) |
-| `DELETE /api/addons/:id` | Desinstala |
-| `GET  /api/addons/:id/_meta/columns` | Metadata de schema por addon |
-| `GET/POST/PATCH/DELETE /api/addons/:id/:table` | CRUD dinámico por tabla de addon |
-| `POST /api/addons/:id/_actions/:action` | Acciones custom |
-| `GET  /api/ws` | Hub WebSocket (autenticado por token) |
-| `GET  /health` | Tu route custom |
+| `GET  /api/dynamic/:model` | Listar filas de un modelo (paginación, sort, filter) |
+| `GET  /api/dynamic/:model/:id` | Obtener una |
+| `POST/PUT/DELETE /api/dynamic/:model[/:id]` | Crear / actualizar / borrar |
+| `POST /api/dynamic/:model/:id/actions/:key` | Actions custom |
+| `GET  /api/metadata/table/:model` | Metadata de columnas por modelo para la UI |
+| `GET  /api/metadata/modal/:model` · `/api/metadata/all` | Metadata de modal + completa |
+| `GET  /api/options/:model` · `/api/search/:model` | Lookups de opciones de select + typeahead (opt-in vía `MountOptions`) |
+| `GET  /api/metrics` | Métricas Prometheus (cuando `EnableMetrics`) |
 
-Todavía no hay ningún addon cargado — soltá un `.mcbundle` en `./bundles/` (o hacele `POST`) y el instalador toma el control.
+Toda respuesta usa el envelope `{ "success": true, "data": ..., "meta": ... }`; los errores son `{ "success": false, "message": "..." }`.
 
-## 4. Instalá tu primer addon
+Todavía no hay ningún addon cargado — instalá uno (soltalo en el directorio de installations, o subí el bundle) y el instalador toma el control: migra el schema, registra la metadata, y las rutas de arriba empiezan a servir el modelo nuevo.
 
-Desde una shell separada:
+## 4. Registrar un modelo / instalar un addon
 
-```bash
-curl -F bundle=@tickets-0.1.0.mcbundle http://localhost:8080/api/addons
-```
-
-La respuesta incluye el ID del addon, el log de migración y los nuevos endpoints. Probá uno:
-
-```bash
-curl http://localhost:8080/api/addons/tickets/_meta/columns
-curl -X POST http://localhost:8080/api/addons/tickets/tickets \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"first ticket","status":"open"}'
-curl http://localhost:8080/api/addons/tickets/tickets
-```
-
-Tenés un servicio CRUD funcional. El kernel maneja el schema, las routes, la validación, los permisos y el hub WebSocket. Escribiste 20 líneas de Go.
-
-## 5. Autenticá
-
-El kernel se mantiene afuera de tu elección de auth. Inyectás identidad vía un middleware que setea un `kernel.Identity` en el contexto del request:
+Para modelos first-party compilados en el binario, registralos para que el servicio dinámico pueda resolverlos:
 
 ```go
-app.HTTP.Use(func(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Resolve from JWT, session, mTLS — your call.
-        id := kernel.Identity{
-            UserID: "u_42",
-            OrgID:  "org_acme",
-            Roles:  []string{"operator"},
-        }
-        ctx := kernel.WithIdentity(r.Context(), id)
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
+app.RegisterModel("tickets", func() modelbase.ModelDefiner { return &Ticket{} })
+```
+
+Para addons instalados, apuntá el kernel al manifest/bundle y el instalador crea el schema del addon (`addon_<key>`), aplica el DDL, proyecta sus hooks CRUD y monta todo — sin reinicio. Ver [Lifecycle](/es/concepts/lifecycle).
+
+Después pegale:
+
+```bash
+curl http://localhost:3000/api/metadata/table/tickets
+curl -X POST http://localhost:3000/api/dynamic/tickets \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"first ticket","status":"open"}'
+curl http://localhost:3000/api/dynamic/tickets
+```
+
+## 5. Autenticar
+
+El kernel trae auth JWT (el `JWTSecret` de arriba) y lee la identidad del caller desde el contexto de Fiber. Para resolver tu propia forma de identidad, cableá un `AuthUserProvider` — el kernel trae adaptadores para `modelbase`, UUID locals y JWT — así el servicio de permisos conoce el usuario, la org y los roles en cada llamada CRUD.
+
+```go
+app := host.NewApp(host.AppConfig{
+    DB:               db,
+    AuthUserProvider: myProvider, // resuelve user/org/roles desde el request
+    // ...
 })
 ```
 
-El servicio de permisos del kernel usa `Identity.Roles` (o grants por usuario en su DB) para decidir si una llamada CRUD está permitida.
+El servicio de permisos usa esa identidad para los chequeos de capability, los chequeos de permiso por usuario y el audit logging en cada request.
 
-## 6. Yendo más lejos
+## 6. Yendo más allá
 
-- **Routes custom junto al kernel** — mantené tu app existente, agregá Metacore en un sub-path.
-- **Múltiples bases de datos** — separá la base de datos de los addons de tu DB de negocio; el instalador del kernel acepta un DSN dedicado.
-- **Addons embebidos** — registrá un addon en código (sin `.mcbundle`) para features first-party. Útil para addons que se publican con el binario del host.
-- **Backends de storage custom** — implementá `kernel.Store` para enchufar algo distinto a Postgres / SQLite (ej. una capa de datos existente).
-- **TLS, observability, graceful shutdown** — `host.App` envuelve esto, mirá las docs del kernel para la matriz de config.
+- **Resolver de modelo custom.** Los hosts que mantienen su propio índice de modelos pueden cablear `Config.ModelResolver` — el servicio dinámico ahora rutea `resolveModel` a través de él (corregido en el kernel actual), así no tenés que doble-registrar en `modelbase`.
+- **Moneda por org.** Registrá `database.RegisterCurrencyDefaultCallback` para poblar el `CurrencyCode`/`Moneda` de un modelo al INSERT desde tu `OrgCurrencyGetter`, con un fallback USD agnóstico de geografía.
+- **Lifecycle hooks.** Seteá `EnableLifecycleHooks` para despachar los hooks de install/upgrade/CRUD declarados en los manifests de los addons.
+- **TLS, observabilidad, graceful shutdown** — `host.App` los envuelve; ver las docs del kernel para la matriz de config.
 
-Continuá en las [docs del Kernel →](https://asteby.github.io/metacore-kernel/) para la referencia de embedding, cada perilla de config y cada subsistema.
+Seguí en las [docs del Kernel →](https://asteby.github.io/metacore-kernel/) para la referencia de embedding, cada perilla de config y cada subsistema.
 
 ## Relacionado
 
 - [Arquitectura](/es/architecture) — cómo encaja el runtime entre hosts y addons.
-- [Concepto de lifecycle](/es/concepts/lifecycle) — internals de install / upgrade / uninstall.
-- [Concepto de permisos](/es/concepts/permissions) — qué hace el enforcer en cada llamada CRUD.
+- [Concepto de Lifecycle](/es/concepts/lifecycle) — internals de install / upgrade / uninstall.
+- [Concepto de Permisos](/es/concepts/permissions) — qué hace el enforcer en cada llamada CRUD.

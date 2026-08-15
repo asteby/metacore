@@ -20,7 +20,7 @@ End-to-end guide for releasing packages from this monorepo and propagating updat
 3. Commit the generated `.changeset/*.md` alongside your code in a PR.
 4. When your PR merges to `main`, the **Release npm packages** workflow opens (or updates) a `chore(release): version packages` PR.
 5. Merging that "Version Packages" PR bumps versions, regenerates changelogs, and triggers `changeset publish` to npm under the `@asteby` scope.
-6. Renovate bots in consumer host apps pick up the new versions and open PRs. Patch / minor bumps auto-merge; majors await human review.
+6. Renovate bots in consumer host applications pick up the new versions and open PRs. Patch / minor bumps auto-merge; majors await human review.
 
 ## Prerequisites
 
@@ -77,7 +77,7 @@ For an isolated channel (e.g., `beta`), use `pnpm changeset pre enter beta`.
 `.changeset/config.json` configures two important constraints:
 
 - `linked: [["@asteby/metacore-ui", "@asteby/metacore-theme"]]` — UI and theme **must** version together. They share a design contract; bumping one alone breaks consumers.
-- `ignore: ["@asteby/metacore-starter-core", "create-metacore-app"]` — these packages are private / internal and excluded from the publish flow. Their changesets are still generated but never trigger npm publishes.
+- `ignore: []` — every public package participates in the publish flow. (Past constraint: `starter-core` and `create-metacore-app` were marked `private` and ignored; both are now public.)
 
 Do not edit these without understanding the downstream effect on consumers.
 
@@ -96,4 +96,4 @@ Do not edit these without understanding the downstream effect on consumers.
 - Changesets docs: <https://github.com/changesets/changesets>
 - changesets/action: <https://github.com/changesets/action>
 - Consumer Renovate template: [`renovate-consumer-template.json`](./renovate-consumer-template.json)
-- Consumer integration guide: [`consumer-guide.md`](./consumer-guide)
+- Consumer integration guide: [`CONSUMER_GUIDE.md`](./consumer-guide)

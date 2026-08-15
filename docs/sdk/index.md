@@ -17,7 +17,12 @@ The **Metacore SDK** is a TypeScript monorepo published as `@asteby/metacore-*` 
 - [Capabilities](./capabilities) — the declarative sandbox.
 - [Consumer Guide](./consumer-guide) — wiring the SDK into a host app.
 - [Publishing](./publishing) — npm release flow for the SDK packages.
+- [Addon Publishing](./addon-publishing) — the real hub publish pipeline: `metacore publish`, signing, review, first-party auto-approve.
 - [WASM ABI](./wasm-abi) — when you need server-side logic with TinyGo.
+- [Federation](./federation) — how a federated addon frontend is structured and loaded into the host.
+- [Full-Page Federation](./full-page-federation) — an addon exposing a complete routed page inside the host.
+- [Modals](./modals) — an addon exposing federated modals the host can invoke.
+- [Bridge API](./bridge-api) — the host↔addon runtime contract (shared singletons, capability gates, dispatch).
 
 ## Packages
 

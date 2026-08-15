@@ -1,6 +1,6 @@
 # Internal setup — local development for SDK contributors
 
-This document is for **contributors to the SDK itself**. If you only consume `@asteby/metacore-*` packages from another app, see [`consumer-guide.md`](./consumer-guide) instead.
+This document is for **contributors to the SDK itself**. If you only consume `@asteby/metacore-*` packages from another app, see [`CONSUMER_GUIDE.md`](./consumer-guide) instead.
 
 ## Table of contents
 
@@ -15,9 +15,9 @@ This document is for **contributors to the SDK itself**. If you only consume `@a
 ## Prerequisites
 
 - **Node.js 20+** and **pnpm 10+** (the root `packageManager` field is authoritative; `corepack enable` will install the matching pnpm).
-- **Go 1.22+** for the CLI (`cli/`) and Go helpers (`pkg/`).
+- **Go 1.25+** for the CLI (`cli/`). Manifest types and signing are imported from the `metacore-kernel` Go module (see [GOPRIVATE setup](#goprivate-setup)).
 - **TinyGo 0.31+** only if you rebuild the WASM examples.
-- **GitHub PAT** with `repo` (read) scope only if you also work against any private Go modules in your fork — see [GOPRIVATE setup](#goprivate-setup).
+- **GitHub PAT** with `repo` (read) scope if you also work against private kernel modules — see [GOPRIVATE setup](#goprivate-setup).
 
 ## Clone and install
 
@@ -25,7 +25,7 @@ This document is for **contributors to the SDK itself**. If you only consume `@a
 git clone https://github.com/asteby/metacore-sdk.git
 cd metacore-sdk
 
-# Go side — CLI, pkg/ helpers, examples/
+# Go side — CLI + examples/
 go mod download
 go test ./...
 
@@ -41,7 +41,6 @@ pnpm -r test
 ```
 metacore-sdk/
 ├── cli/          # Go CLI — init, validate, build, sign, compile-wasm
-├── pkg/          # Go SDK helpers — manifest types, signing, host context
 ├── packages/     # pnpm workspace — @asteby/metacore-* npm packages
 ├── examples/     # reference addons (built in CI to catch regressions)
 ├── templates/    # scaffold templates embedded by the CLI
@@ -84,7 +83,7 @@ go build -o bin/metacore ./cli
 
 ## Linking against a consumer app
 
-When iterating on a package in tandem with a consumer host application, use a `file:` reference from the consumer to this repo. See [`consumer-guide.md` § Mixed npm + `file:` pattern](./consumer-guide#4-mixed-npm--file-pattern-for-local-development).
+When iterating on a package in tandem with a consumer host application, use a `file:` reference from the consumer to this repo. See [`CONSUMER_GUIDE.md` § Mixed npm + `file:` pattern](./consumer-guide#4-mixed-npm--file-pattern-for-local-development).
 
 Build the package whenever you change it — pnpm symlinks the `dist/`, so the consumer picks up the new bundle on its next dev-server restart (or HMR for ESM):
 
@@ -94,10 +93,10 @@ pnpm --filter @asteby/metacore-runtime-react build
 
 ## GOPRIVATE setup
 
-The Metacore kernel and SDK are both public, so you only need this if your fork or downstream host application depends on a private Go module of your own. Configure Go to fetch it through your PAT:
+If your work touches modules that depend on private repos (e.g. the kernel), configure Go to fetch them through your PAT:
 
 ```bash
-export GOPRIVATE=github.com/your-org/your-private-module
+export GOPRIVATE=github.com/asteby/metacore-kernel
 
 cat >> ~/.netrc <<EOF
 machine github.com
@@ -107,11 +106,12 @@ EOF
 chmod 600 ~/.netrc
 ```
 
-The PAT must have `repo` (read) scope for the private repositories you list.
+The PAT must have `repo` (read) scope for the private repositories.
 
 ## CI secrets
 
-The following secrets are configured at the GitHub organization level for CI to publish:
+The following secrets are configured at the GitHub organization level for CI to clone private modules and publish:
 
-- `NPM_TOKEN` — npm publish token for `@asteby` scope (Granular Access Token with "Bypass 2FA" enabled — see [`publishing.md`](./publishing)).
+- `METACORE_READ_TOKEN` — PAT with read access to private repos.
+- `NPM_TOKEN` — npm publish token for `@asteby` scope (Granular Access Token with "Bypass 2FA" enabled — see [`PUBLISHING.md`](./publishing)).
 - `GHCR_TOKEN` — token with `write:packages` scope for ghcr.io.

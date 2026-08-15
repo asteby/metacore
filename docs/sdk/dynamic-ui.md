@@ -34,8 +34,8 @@ This document covers the React side: which components exist, what props they acc
 ```
    manifest.json                kernel                       runtime-react
    ─────────────                ──────                       ─────────────
-   model_definitions[] ──▶  AutoMigrate  ──▶  /metadata/table/<model>
-   actions[]                                  /data/<model>
+   models[]            ──▶  AutoMigrate  ──▶  /metadata/table/<model>
+   contributions.actions[]                    /data/<model>
    capabilities[]                             /data/<model>/<id>
                                               /data/<model>/<id>/action/<key>
                                               /options/<endpoint>
@@ -246,8 +246,8 @@ Routes a custom action declared in `manifest.actions[]` to the right modal:
 
 1. **Custom registered component.** If the SDK's action registry has a component for `<model>::<action.key>`, it is used. Hosts register these via:
    ```ts
-   import { actionRegistry } from '@asteby/metacore-sdk'
-   actionRegistry.register('tickets', 'reassign', ReassignDialog)
+   import { registerActionComponent } from '@asteby/metacore-sdk'
+   registerActionComponent('tickets', 'reassign', ReassignDialog)
    ```
 2. **`action.fields[].length > 0`.** Renders a generic modal with `<DynamicForm>`-style inputs.
 3. **`action.confirm === true`.** Renders an `AlertDialog` confirmation.
@@ -383,6 +383,34 @@ import { CapabilityGate, CapabilityProvider } from '@asteby/metacore-runtime-rea
 
 Capability strings are free-form — the canonical format is `<kind> <target>` (e.g. `db:read addon_tickets.*`) but hosts can use any naming. The gate is purely a UI affordance: the kernel still enforces capabilities server-side. See [`capabilities.md`](./capabilities).
 
+### `<CapabilityGate>` vs. RBAC permissions — two different systems
+
+`<CapabilityGate>`/`capabilities[]` (above) is the addon **sandbox**: what
+tables/hosts/events an addon may touch at all, checked once at the
+capability layer. It is a different axis from the host's **RBAC
+permission system** — role × module × action, derived automatically from
+the manifest (every model gets `<table>.index/create/update/delete`, every
+custom action gets `<table>.<action_key>`) and enforced server-side on
+every write path. A user can have the capability but lack the role
+permission, or vice versa on a per-installation basis; both gates must
+pass. See [manifest-spec.md §10](./manifest-spec#10-rbac--permissions).
+
+**Documented exception**: the options/lookup endpoints a `dynamic_select`
+or `ref` picker calls (`/api/options/:ref`, dependent-picker resolution)
+carry **no permission gate** — they only ever return `{value, label}`
+pairs used to populate a picker, never full records, so they're treated as
+safe to expose broadly rather than per-permission. Don't rely on hiding a
+model from a role to keep its *values* out of another model's picker
+options; that boundary isn't enforced there.
+
+**Tenant scoping note**: for `tenancy.isolation: "shared"` models, org
+scoping is enforced in the **Go query layer** on every handler — every
+model.go/handler explicitly filters by `organization_id`. Postgres RLS
+policies also exist on these tables, but they are defense-in-depth, not
+the sole boundary: never write a custom SQL path (`db_exec`, a raw query)
+that skips the explicit org filter on the assumption that RLS alone will
+catch it.
+
 ## Slots
 
 Named extension points the host renders and addons contribute to:
@@ -470,8 +498,8 @@ Two layers:
 1. Declarative — declare `actions[]` in the manifest with `confirm`, `fields[]` and let `<ActionModalDispatcher>` render the modal.
 2. Imperative — register a fully custom modal component:
    ```ts
-   import { actionRegistry } from '@asteby/metacore-sdk'
-   actionRegistry.register('invoices', 'send_email', SendEmailDialog)
+   import { registerActionComponent } from '@asteby/metacore-sdk'
+   registerActionComponent('invoices', 'send_email', SendEmailDialog)
    ```
    The dispatcher will pick up your component when an action key matches.
 
@@ -537,4 +565,4 @@ When a host needs more, the recommended pattern is to compose: wrap `<DynamicTab
 - [`manifest-spec.md`](./manifest-spec) — the source of every `col.*` and `actions[]` field.
 - [`addon-cookbook.md`](./addon-cookbook) — recipes for common scenarios.
 - [`capabilities.md`](./capabilities) — declaring scoped permissions.
-- [`consumer-guide.md`](./consumer-guide) — wiring the SDK into a host app.
+- [`CONSUMER_GUIDE.md`](./consumer-guide) — wiring the SDK into a host app.

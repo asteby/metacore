@@ -33,19 +33,19 @@ No glue code. No controllers. No forms. The contract is the manifest.
 |---|---|
 | Node.js 20+ | Host frontend, scaffolders. |
 | pnpm 9+ | Workspace package manager. |
-| Go 1.22+ | Required if you build the addon CLI from source or compile a WASM backend. |
+| Go 1.25+ | Required if you build the addon CLI from source or compile a WASM backend (matches the repo `go.mod`). |
 | TinyGo 0.31+ | Only if your addon ships a WASM backend (optional for this guide). |
-| A running Metacore host | Any host application embedding the kernel, or a fresh app from `npx create-metacore-app`. |
+| A running Metacore host | Any host application that embeds the kernel, or a fresh app from `npm create @asteby/metacore-app`. |
 
 If you don't have a host yet, scaffold one in 30 seconds:
 
 ```bash
-npx create-metacore-app my-host
+npm create @asteby/metacore-app my-host
 cd my-host
 pnpm dev
 ```
 
-`create-metacore-app` wires `@asteby/metacore-starter-config`, theme, UI, auth, i18n and the runtime — see [`consumer-guide.md`](./consumer-guide) for the full integration.
+`@asteby/create-metacore-app` wires `@asteby/metacore-starter-config`, theme, UI, auth, i18n and the runtime — see [`CONSUMER_GUIDE.md`](./consumer-guide) for the full integration.
 
 ## Step 1 — Scaffold an addon
 
@@ -73,23 +73,30 @@ The manifest already declares one model (`tickets_items`) with two columns. Let'
 
 ## Step 2 — Declare your model
 
-Open `manifest.json` and replace `model_definitions` with:
+`metacore init` emits a **Module Contract v3** manifest (`apiVersion:
+"asteby.com/v3"`). Open `manifest.json` and replace the `models[]` entry with
+something more interesting (v3 declares full column definitions inline):
 
 ```json
-"model_definitions": [
+"models": [
   {
-    "table_name": "tickets",
-    "model_key": "tickets",
+    "key": "Ticket",
+    "table": "tickets",
     "label": "Tickets",
-    "org_scoped": true,
-    "soft_delete": true,
     "columns": [
-      { "name": "number",      "type": "string",  "size": 32,  "required": true, "unique": true },
-      { "name": "title",       "type": "string",  "size": 255, "required": true },
-      { "name": "description", "type": "text" },
-      { "name": "status",      "type": "string",  "size": 20,  "required": true, "default": "'open'", "index": true },
-      { "name": "priority",    "type": "string",  "size": 10,  "default": "'normal'" },
-      { "name": "due_at",      "type": "timestamp" }
+      { "name": "id",              "type": "uuid",        "primary_key": true, "default": "gen_random_uuid()" },
+      { "name": "organization_id", "type": "uuid",        "not_null": true },
+      { "name": "number",          "type": "text",        "not_null": true },
+      { "name": "title",           "type": "text",        "not_null": true },
+      { "name": "description",     "type": "text" },
+      { "name": "status",          "type": "text",        "not_null": true, "default": "open" },
+      { "name": "priority",        "type": "text",        "default": "normal" },
+      { "name": "due_at",          "type": "timestamptz" },
+      { "name": "created_at",      "type": "timestamptz", "not_null": true, "default": "now()" }
+    ],
+    "indices": [
+      { "name": "tickets_org_number_uq", "columns": ["organization_id", "number"], "unique": true },
+      { "name": "tickets_status_idx",    "columns": ["status"] }
     ]
   }
 ]
@@ -99,7 +106,7 @@ Validate the manifest:
 
 ```bash
 metacore validate
-# ok: tickets@0.1.0 passes validation against kernel 2.0.0
+# ok: tickets@0.1.0 passes validation against the v3 contract (asteby.com/v3)
 ```
 
 `validate` runs the same gates the marketplace runs at upload time: identifier regex, default-literal whitelist, capability scoping, semver. Failures are loud and specific.
@@ -164,43 +171,38 @@ You wrote zero rendering code. Every column type, every filter, every dialog com
 
 ## Step 5 — Add a custom action
 
-Declare an action under the model:
+In v3, actions live under `contributions.actions[]`. Each action carries its
+own `handler` (the server side is wired *into the action*, not a separate
+`hooks{}` map). Declare a webhook-backed action:
 
 ```json
-"actions": {
-  "tickets": [
+"contributions": {
+  "actions": [
     {
       "key": "resolve",
       "label": "Resolve",
       "icon": "CheckCircle2",
+      "target_model": "Ticket",
+      "handler": { "type": "webhook", "url": "/webhooks/resolve_ticket" },
       "confirm": true,
-      "confirmMessage": "Mark this ticket as resolved?",
-      "requiresState": ["open", "in_progress"]
+      "confirm_message": "Mark this ticket as resolved?"
     }
   ]
 }
 ```
 
-`metacore validate && metacore build --strict` — restart the host. The row dropdown now shows a "Resolve" entry. Clicking it pops a confirmation dialog (`<ActionModalDispatcher>` decides which UI to render based on the action shape) and POSTs to `/data/tickets/<id>/action/resolve`.
+`metacore validate && metacore build --strict` — restart the host. The row dropdown now shows a "Resolve" entry. Clicking it pops a confirmation dialog (`<ActionModalDispatcher>` decides which UI to render based on the action shape) and dispatches to the action's `handler`.
 
-Wire the server side via `hooks`:
-
-```json
-"hooks": {
-  "tickets::resolve": "/webhooks/resolve_ticket"
-}
-```
-
-The host POSTs an HMAC-signed envelope to your webhook with the ticket id and the operator's identity. See [`addon-publishing.md`](./addon-publishing) for the envelope format.
+The handler can be a `webhook` (the host POSTs an HMAC-signed envelope to `handler.url` with the ticket id and the operator's identity) or a `wasm` function (`{ "type": "wasm", "function": "ResolveTicket" }` — the named export of your compiled `backend/backend.wasm`). See [`addon-publishing.md`](./addon-publishing) for the envelope format and [`wasm-abi.md`](./wasm-abi) for the wasm ABI.
 
 For action UIs that need form fields, add `fields: [...]` to the action — `<ActionModalDispatcher>` will render a dynamic form from them automatically. For full-custom modals, register a component:
 
 ```tsx
-import { actionRegistry } from '@asteby/metacore-sdk'
-actionRegistry.register('tickets', 'resolve', MyResolveDialog)
+import { registerActionComponent } from '@asteby/metacore-sdk'
+registerActionComponent('tickets', 'resolve', MyResolveDialog)
 ```
 
-The dispatcher will use `MyResolveDialog` instead of the generic confirmation. See [`dynamic-ui.md`](./dynamic-ui.md#actionmodaldispatcher).
+The dispatcher will use `MyResolveDialog` instead of the generic confirmation. See [`dynamic-ui.md`](./dynamic-ui#actionmodaldispatcher).
 
 ## What you got for free
 
@@ -225,4 +227,4 @@ What you *didn't* write: a controller, a route file, a SQL migration, a form com
 - [`capabilities.md`](./capabilities) — declaring sandboxed permissions.
 - [`wasm-abi.md`](./wasm-abi) — when you need server-side logic with a TinyGo backend.
 - [`addon-publishing.md`](./addon-publishing) — signing, uploading and the marketplace review flow.
-- [`consumer-guide.md`](./consumer-guide) — building a host app that consumes the SDK packages.
+- [`CONSUMER_GUIDE.md`](./consumer-guide) — building a host app that consumes the SDK packages.

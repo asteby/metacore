@@ -20,7 +20,7 @@ Guía end-to-end para publicar packages desde este monorepo y propagar updates a
 3. Commiteá el `.changeset/*.md` generado junto con tu código en un PR.
 4. Cuando tu PR mergea a `main`, el workflow **Release npm packages** abre (o actualiza) un PR `chore(release): version packages`.
 5. Mergear ese PR "Version Packages" bumpea versiones, regenera changelogs, y dispara `changeset publish` a npm bajo el scope `@asteby`.
-6. Los bots de Renovate en apps host consumidoras toman las nuevas versiones y abren PRs. Bumps de patch / minor auto-mergean; los majors esperan review humano.
+6. Los bots de Renovate en aplicaciones host consumidoras toman las nuevas versiones y abren PRs. Bumps de patch / minor auto-mergean; los majors esperan review humano.
 
 ## Prerequisitos
 
@@ -77,7 +77,7 @@ Para un canal aislado (ej. `beta`), usá `pnpm changeset pre enter beta`.
 `.changeset/config.json` configura dos constraints importantes:
 
 - `linked: [["@asteby/metacore-ui", "@asteby/metacore-theme"]]` — UI y theme **deben** versionarse juntos. Comparten un contrato de design; bumpear uno solo rompe a los consumidores.
-- `ignore: ["@asteby/metacore-starter-core", "create-metacore-app"]` — estos packages son privados / internos y excluidos del flujo de publicación. Sus changesets igual se generan pero nunca disparan publicaciones a npm.
+- `ignore: []` — todo package público participa del flujo de publicación. (Constraint anterior: `starter-core` y `create-metacore-app` estaban marcados `private` e ignorados; ambos son públicos ahora.)
 
 No edites estos sin entender el efecto downstream en consumidores.
 
@@ -96,4 +96,4 @@ No edites estos sin entender el efecto downstream en consumidores.
 - Docs de Changesets: <https://github.com/changesets/changesets>
 - changesets/action: <https://github.com/changesets/action>
 - Template de Renovate para consumidores: [`renovate-consumer-template.json`](./renovate-consumer-template.json)
-- Guía de integración para consumidores: [`consumer-guide.md`](./consumer-guide)
+- Guía de integración para consumidores: [`CONSUMER_GUIDE.md`](./consumer-guide)

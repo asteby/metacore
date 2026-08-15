@@ -1,148 +1,163 @@
 # Publishing
 
-Every addon that runs in production goes through the same pipeline:
+Every addon that runs in production goes through the same real pipeline:
 
 ```
-  local build  →  sign  →  upload  →  review  →  published
+  build tarball  →  sign (ed25519)  →  metacore publish  →  scan  →  review  →  catalog
 ```
 
-This document covers each step.
+This document describes the **actual** flow implemented by
+`hub/backend/cmd/metacore/publish.go` (the CLI) and
+`hub/backend/internal/api/publish.go` + `hub/backend/internal/scanner`
+(the server side) — not a hypothetical one. If this doc and the code ever
+disagree, trust the code.
 
-## 1. Prepare an Ed25519 keypair
+## 1. Register a developer identity + keypair
 
 ```bash
-metacore keygen --out dev
-# wrote dev.pem (private, 0600) and dev.pub (public)
+metacore keys init
+# writes an ed25519 keypair under your metacore config dir
+metacore keys show
+# prints the public key to hand to a hub admin
 ```
 
-- `dev.pem` is Ed25519 in PKCS#8 PEM. Keep it outside git. Use a password
-  manager or a hardware token (`ssh-keygen -t ed25519 -N ''` + a wrapper)
-  for production signing identities.
-- `dev.pub` is the public key. Register it on
-  `<your-hub-url>/developers → API keys`. You may register multiple public
-  keys per developer account (dev, CI, release engineer).
+Register the public key with the hub (an admin adds you as a developer);
+you receive a `developer_id` (UUID). Auth for the publish request itself is
+**either**:
 
-The marketplace verifies every upload against the set of registered public
-keys. Bundles signed with an unregistered key are rejected before review.
+- `Authorization: Bearer <JWT>` — log in through the hub developer portal,
+  pass the token via `--token` or `METACORE_TOKEN`; **or**
+- `X-Developer-Key: <shared key>` — the legacy path (`--developer-key` /
+  `METACORE_DEVELOPER_KEY`), ask a hub admin for `MARKETPLACE_DEV_KEY`.
 
-## 2. Build
+## 2. Publish
 
 ```bash
-metacore build --strict --sign dev.pem
-# built mi-addon-1.0.0.tar.gz (2 migrations, 14 frontend files, 1 backend files, target=wasm)
-# wrote mi-addon-1.0.0.tar.gz.sig
+cd my-addon/        # directory with manifest.json at its root
+metacore publish \
+  --hub https://hub.asteby.com \
+  --developer-id "$METACORE_DEVELOPER_ID" \
+  --token "$METACORE_TOKEN" \
+  --key ~/.metacore/keys/dev.pem
 ```
 
-`--strict` fails on warnings. It is mandatory for the review step.
+`metacore publish` (see `hub/backend/cmd/metacore/publish.go`) does five
+things, in order:
 
-`--sign` chains `metacore sign` after the build, producing
-`<bundle>.sig` next to the tarball. You can also sign separately:
+1. **Load** the addon from disk (manifest + any migrations/frontend/backend
+   payloads referenced by it).
+2. **Validate** `manifest.Validate(manifest.APIVersion)` — the same v3
+   validator the kernel runs, client-side, so a broken manifest fails fast
+   instead of round-tripping to the hub.
+3. **Pack** into a deterministic `tar.gz` (`kernel/bundle.Write`).
+4. **Sign**: `sha256(tarball)`, then `ed25519.Sign(priv, digest)` — the
+   signature travels as a **hex-encoded** string, not a detached `.sig`
+   file.
+5. **POST** `multipart/form-data` to `<hub>/v1/addons`:
 
-```bash
-metacore sign --key dev.pem mi-addon-1.0.0.tar.gz
-```
+   | Part | Content |
+   |---|---|
+   | `bundle` | the tarball, as a file part |
+   | `signature` | hex(ed25519 signature over sha256(bundle)) |
+   | `developer_id` | your registered UUID |
+   | `Authorization: Bearer <jwt>` **or** `X-Developer-Key: <key>` | header, not a form field |
 
-The signature is an Ed25519 signature over SHA-256 of the bundle bytes.
+Use `--dry-run` to pack + sign locally without uploading (useful in CI to
+fail fast on a manifest problem before touching the network).
 
-## 3. Upload
+The server enforces a **32 MiB** cap on the whole multipart bundle
+(`maxBundleSize` in `publish.go`).
 
-```bash
-curl -X POST https://your-hub.example.com/v1/addons \
-  -H "X-Developer-Key: $METACORE_DEV_KEY" \
-  -F bundle=@mi-addon-1.0.0.tar.gz \
-  -F signature=@mi-addon-1.0.0.tar.gz.sig
-```
+## 3. What happens server-side
 
-Response:
+`handlePublish` (`hub/backend/internal/api/publish.go`):
 
-```json
-{
-  "id": "ad_01HK...",
-  "status": "pending",
-  "addon_key": "mi-addon",
-  "version": "1.0.0",
-  "uploaded_at": "2026-04-15T12:00:00Z"
-}
-```
+1. Verifies the signature against the developer's registered public key(s).
+2. Re-parses and re-validates the bundle/manifest server-side (never trust
+   the client's validation alone).
+3. Runs `scanner.Scan` against any WASM module in the bundle (see below).
+4. Sets `review_status`:
+   - **`pending_review`** — the default for everyone.
+   - **`auto_approved`** — the scanner's fast path flips it here when the
+     publish is *provably safe* (passes every automated check with no
+     warnings needing a human look).
+   - **First-party override**: developers whose UUID is in
+     `HUB_FIRST_PARTY_DEVELOPER_IDS` (the platform's own developer
+     accounts) are stamped `publisher_tier: "official"` and their
+     publishes **skip the review queue entirely — including their very
+     first publish** (`isFirstParty` in `router.go`; reviewing your own
+     first-party addons is treated as theatre, not a security control).
+   Track status at `<hub>/admin/submissions`; nothing appears in the
+   public catalog until it reaches `approved`/`auto_approved`.
 
-Upload limits: 50 MB per bundle, 200 files in `frontend/`, 25 migrations.
+## 4. The scanner (`hub/backend/internal/scanner`)
 
-## 4. Review flow
+Runs synchronously inside the publish request (single-digit ms for a
+typical addon) against any `.wasm` module the bundle carries:
 
-```
-pending
-   │
-   ├──► changes_requested  ── email with actionable diff, you re-upload
-   │
-   ├──► approved           ── marketplace-signed block added to manifest.signature
-   │
-   └──► published          ── live at <your-hub-url>/addons/<key>
-```
+- **Magic + version bytes** of the WASM binary are checked.
+- **Import allowlist** — every host import the module asks for must be in
+  the ABI v1 whitelist (`log`, `env_get`, `http_fetch`/`http_request`,
+  `event_emit`, `db_query`, `db_exec`, `connector_get`, `data_mutate`,
+  `data_query`, …, per `metacore-kernel/docs/abi/v1.md`). Anything outside
+  it — raw WASI filesystem/network syscalls, unknown host modules — is
+  **rejected**; it would never run on the kernel anyway.
+  - `http_request` and `connector_get` are treated as **real gated ABI
+    imports**, not string-matched: if the module imports either, the
+    manifest **must** declare the matching capability (`http:fetch` /
+    `connector:read` respectively) or the publish is rejected. This is a
+    static check on the compiled binary's import section, so a manifest
+    that "forgets" the capability cannot slip through by omission.
+- **Export check** — requires at least one entry point: every key in
+  `manifest.backend.exports`, or a recognised lifecycle export (`_start`,
+  `handle_request`). No entry point = dead code = rejected.
+- **Size cap**: 10 MiB on the `.wasm` artifact itself (separate from the
+  32 MiB whole-bundle cap).
+- **Warnings only (never block)**: hardcoded URLs whose host isn't covered
+  by a declared `http:fetch` capability; suspicious export density
+  (obfuscation smell).
+- **Dry-run instantiation** against a NULL host (a `wazero` runtime whose
+  `metacore_host` imports all stub-return `0`). A module that panics at
+  link time or during an optional `_start` call is rejected — it would
+  crash on real traffic too.
 
-Typical review SLA is 3 business days. Status changes trigger email to the
-developer account and appear on `<your-hub-url>/developers/submissions`.
-
-### What the review checks
-
-- Signature verifies against a registered public key.
-- `metacore validate` passes (re-run server-side).
-- No capability without `reason`.
-- No `db:write` on core tables for non-finance/non-operations categories.
-- No `http:fetch` target that bypasses the anti-wildcard rule.
-- SQL migrations parse, contain no `DROP DATABASE`, `GRANT`, superuser
-  functions, or `pg_read_server_files`.
-- Frontend SRI integrity matches declared `integrity`.
-- Readme + screenshots render.
-- License field populated; SPDX identifier preferred.
+The `ScanReport` is persisted (`AddonVersion.scan_report` jsonb) and
+rendered in the admin review UI.
 
 ## 5. Versioning
 
-Strict semver.
+Strict semver, checked by the manifest validator (`metadata.version`).
+There's no server-enforced bump-size policy beyond that today — treat this
+as convention, not an automated gate:
 
 | Change | Bump |
 |---|---|
-| New tool / action / settings field | minor |
-| New migration adding a nullable column | minor |
-| Removing a column / renaming a key | major |
-| Bugfix without schema change | patch |
+| New action / setting / connector | minor |
+| New nullable column, new model | minor |
+| Removing a column, renaming a key, breaking a manifest field shape | major |
+| Bugfix, no schema/contract change | patch |
 
-The marketplace keeps every approved version. Installations pin to a
-specific version and pick up upgrades only when the admin clicks *Update*.
+Every approved version is retained; installations pin to a specific
+version and only move forward when the org admin clicks Update in ops.
 
-Yanking a version (security issue): email `security@asteby.com` or use the
-developer dashboard. Installed tenants get an in-product banner.
+## 6. Keys, tokens, secrets
 
-## 6. What gets rejected
+- The **ed25519 keypair** (`metacore keys init`) signs bundles — it's your
+  publisher identity, not a bearer credential.
+- **`developer_id`** is the UUID a hub admin registers for you (maps your
+  pubkey to an account).
+- **`METACORE_TOKEN`** (JWT) or **`METACORE_DEVELOPER_KEY`** (legacy shared
+  key) authenticates the upload request itself — separate from the
+  signature.
+- Never put secrets in the manifest. Use `settings[].secret: true` (host
+  settings) or `connectors[].credentials[].type: "secret"` (per-org
+  credentials) — both are stored encrypted server-side, never round-tripped
+  on a GET. See [`manifest-spec.md` §14](./manifest-spec#14-settings)
+  and [§8](./manifest-spec#8-connectors).
 
-Fast rejections (same-day, automated):
+## See also
 
-- Wildcards that violate [capabilities.md](./capabilities).
-- Missing `capabilities` for a detected outbound call.
-- SQL in migrations that looks malicious (`COPY FROM PROGRAM`, etc.).
-- Signature mismatch.
-- Kernel range incompatible with current production (`>=1.x`).
-
-Slow rejections (human review):
-
-- Misleading `description`, `category`, or screenshots.
-- Dependency on a deprecated core model.
-- Accessibility violations in the frontend bundle.
-
-## 7. Keys, tokens, and secrets
-
-- `$METACORE_DEV_KEY` is a personal access token issued by the hub. Rotate
-  quarterly. It is *not* the Ed25519 key.
-- Never put secrets (API tokens, OAuth credentials) in the manifest. Use
-  `settings[].secret: true` and let the host inject them via `env_get` at
-  runtime.
-
-## 8. Installing a pre-release locally
-
-For staging environments, upload with `?channel=beta`:
-
-```bash
-curl -X POST "https://your-hub.example.com/v1/addons?channel=beta" ...
-```
-
-Beta bundles are visible only to organizations that opt in from the
-developer dashboard — useful for private customers and dogfooding.
+- [`manifest-spec.md`](./manifest-spec) — the full v3 manifest field reference.
+- [`addon-cookbook.md`](./addon-cookbook) — end-to-end recipes.
+- [`wasm-abi.md`](./wasm-abi) — the WASM guest/host contract the scanner enforces against.
+- [`capabilities.md`](./capabilities) — the `kind` catalog for `capabilities[]`.

@@ -34,8 +34,8 @@ Este documento cubre el lado React: qué componentes existen, qué props aceptan
 ```
    manifest.json                kernel                       runtime-react
    ─────────────                ──────                       ─────────────
-   model_definitions[] ──▶  AutoMigrate  ──▶  /metadata/table/<model>
-   actions[]                                  /data/<model>
+   models[]            ──▶  AutoMigrate  ──▶  /metadata/table/<model>
+   contributions.actions[]                    /data/<model>
    capabilities[]                             /data/<model>/<id>
                                               /data/<model>/<id>/action/<key>
                                               /options/<endpoint>
@@ -246,8 +246,8 @@ Rutea una acción custom declarada en `manifest.actions[]` al modal correcto:
 
 1. **Componente custom registrado.** Si el registry de acciones del SDK tiene un componente para `<model>::<action.key>`, se usa. Los hosts los registran vía:
    ```ts
-   import { actionRegistry } from '@asteby/metacore-sdk'
-   actionRegistry.register('tickets', 'reassign', ReassignDialog)
+   import { registerActionComponent } from '@asteby/metacore-sdk'
+   registerActionComponent('tickets', 'reassign', ReassignDialog)
    ```
 2. **`action.fields[].length > 0`.** Renderiza un modal genérico con inputs estilo `<DynamicForm>`.
 3. **`action.confirm === true`.** Renderiza una confirmación `AlertDialog`.
@@ -383,6 +383,34 @@ import { CapabilityGate, CapabilityProvider } from '@asteby/metacore-runtime-rea
 
 Los strings de capabilities son de forma libre — el formato canónico es `<kind> <target>` (ej. `db:read addon_tickets.*`) pero los hosts pueden usar cualquier convención de naming. El gate es puramente una conveniencia de UI: el kernel sigue enforciando capabilities server-side. Ver [`capabilities.md`](./capabilities).
 
+### `<CapabilityGate>` vs. permisos RBAC — dos sistemas distintos
+
+`<CapabilityGate>`/`capabilities[]` (arriba) es el **sandbox** del addon: qué
+tablas/hosts/eventos puede tocar el addon en general, chequeado una sola vez
+en la capa de capability. Es un eje distinto del **sistema de permisos RBAC**
+del host — rol × módulo × acción, derivado automáticamente del manifest
+(cada modelo obtiene `<table>.index/create/update/delete`, cada acción custom
+obtiene `<table>.<action_key>`) y enforced server-side en cada write path. Un
+usuario puede tener la capability pero no el permiso de rol, o viceversa,
+según la instalación; ambos gates tienen que pasar. Ver
+[manifest-spec.md §10](./manifest-spec#10-rbac--permissions).
+
+**Excepción documentada**: los endpoints de options/lookup que un picker
+`dynamic_select` o `ref` llama (`/api/options/:ref`, resolución de pickers
+dependientes) **no tienen gate de permisos** — solo devuelven pares
+`{value, label}` usados para popular un picker, nunca registros completos,
+así que se tratan como seguros para exponer ampliamente en vez de
+per-permiso. No confíes en esconder un modelo de un rol para mantener sus
+*valores* fuera de las options de otro modelo; ese límite no se enforcea ahí.
+
+**Nota de tenant scoping**: para modelos con `tenancy.isolation: "shared"`,
+el scoping por org se enforcea en la **capa de queries de Go** en cada
+handler — cada model.go/handler filtra explícitamente por
+`organization_id`. También existen policies de RLS de Postgres en esas
+tablas, pero son defensa en profundidad, no el único límite: nunca escribas
+un path SQL custom (`db_exec`, una query raw) que se salte el filtro
+explícito de org asumiendo que RLS solo ya lo va a atajar.
+
 ## Slots
 
 Puntos de extensión nombrados que el host renderiza y a los que los addons contribuyen:
@@ -470,8 +498,8 @@ Dos capas:
 1. Declarativa — declará `actions[]` en el manifest con `confirm`, `fields[]` y dejá que `<ActionModalDispatcher>` renderice el modal.
 2. Imperativa — registrá un componente de modal totalmente custom:
    ```ts
-   import { actionRegistry } from '@asteby/metacore-sdk'
-   actionRegistry.register('invoices', 'send_email', SendEmailDialog)
+   import { registerActionComponent } from '@asteby/metacore-sdk'
+   registerActionComponent('invoices', 'send_email', SendEmailDialog)
    ```
    El dispatcher va a tomar tu componente cuando el key de acción coincida.
 
@@ -537,4 +565,4 @@ Cuando un host necesita más, el patrón recomendado es componer: envolvé `<Dyn
 - [`manifest-spec.md`](./manifest-spec) — la fuente de cada field `col.*` y `actions[]`.
 - [`addon-cookbook.md`](./addon-cookbook) — recetas para escenarios comunes.
 - [`capabilities.md`](./capabilities) — declarando permisos con scope.
-- [`consumer-guide.md`](./consumer-guide) — integrar el SDK en una app host.
+- [`CONSUMER_GUIDE.md`](./consumer-guide) — integrar el SDK en una app host.

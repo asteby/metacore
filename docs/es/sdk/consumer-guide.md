@@ -1,6 +1,6 @@
 # Guía del consumidor — integrando `@asteby/metacore-*`
 
-Guía para apps que consumen el Metacore SDK — aplicaciones host como paneles de operador, superficies de marketplace + admin, portales de cliente, herramientas internas, o cualquier otro frontend Vite + React. Cubre instalación, el patrón de desarrollo mixto npm/`file:`, setup de Vite + Tailwind 4, deploy, y cómo recibir updates automáticas vía Renovate.
+Guía para aplicaciones host que consumen el Metacore SDK. Cubre instalación, el patrón de desarrollo mixto npm/`file:`, setup de Vite + Tailwind 4, deploy, y cómo recibir updates automáticas vía Renovate.
 
 ## Tabla de contenidos
 
@@ -99,7 +99,7 @@ export function UsersPage({ data }: { data: User[] }) {
 }
 ```
 
-Ver el README de cada package para la superficie completa — [`packages/ui`](https://github.com/asteby/metacore-sdk/tree/main/packages/ui), [`packages/auth`](https://github.com/asteby/metacore-sdk/tree/main/packages/auth), [`packages/runtime-react`](https://github.com/asteby/metacore-sdk/tree/main/packages/runtime-react), y demás.
+Ver el README de cada package para la superficie completa — [`packages/ui`](../packages/ui), [`packages/auth`](../packages/auth), [`packages/runtime-react`](../packages/runtime-react), y demás.
 
 ## 3.1. Configurar `<DynamicTable>` en tu app
 
@@ -138,7 +138,7 @@ export function TicketsPage() {
 }
 ```
 
-Si la instancia `i18n` no tiene las keys `datatable.*` y `common.*` que el runtime usa, los headers y labels de paginación renderizan como keys raw. Copiá la lista de keys desde [`packages/ui/README.md`](https://github.com/asteby/metacore-sdk/tree/main/packages/ui#i18n) a tus bundles o pre-traducí los labels de columna en una factory `getDynamicColumns` custom.
+Si la instancia `i18n` no tiene las keys `datatable.*` y `common.*` que el runtime usa, los headers y labels de paginación renderizan como keys raw. Copiá la lista de keys desde [`packages/ui/README.md`](../packages/ui#i18n) a tus bundles o pre-traducí los labels de columna en una factory `getDynamicColumns` custom.
 
 Para un deep dive sobre cada prop, cell renderers custom, gating de capabilities, dispatchers de acción y el cache de metadata, ver [`dynamic-ui.md`](./dynamic-ui).
 
@@ -150,9 +150,9 @@ La mayoría de las apps consumidoras instalan packages de Metacore desde npm y d
 // package.json
 {
   "dependencies": {
-    "@asteby/metacore-theme": "^0.3.0",
-    "@asteby/metacore-ui": "^0.6.0",
-    "@asteby/metacore-auth": "^4.0.0",
+    "@asteby/metacore-theme": "^2.0.0",
+    "@asteby/metacore-ui": "^2.0.0",
+    "@asteby/metacore-auth": "^7.0.0",
 
     "@asteby/metacore-runtime-react": "file:../metacore-sdk/packages/runtime-react",
     "@asteby/metacore-tools": "file:../metacore-sdk/packages/tools"
@@ -170,7 +170,7 @@ Volvé un package a un rango semver de npm apenas aterrize una release. Las refs
 
 ## 5. Vite — `metacoreOptimizeDeps`
 
-El pre-bundler de dependencias de Vite no crawlea packages `file:` por defecto, lo que produce chunks viejos e instancias inconsistentes de React cuando los packages del SDK se re-exportan unos a otros. `@asteby/metacore-starter-config` (>= 0.3.0) incluye un helper que cablea esto correctamente:
+El pre-bundler de dependencias de Vite no crawlea packages `file:` por defecto, lo que produce chunks viejos e instancias inconsistentes de React cuando los packages del SDK se re-exportan unos a otros. `@asteby/metacore-starter-config` incluye un preset que cablea esto correctamente:
 
 ```ts
 // vite.config.ts
@@ -181,14 +181,14 @@ import { metacoreOptimizeDeps } from '@asteby/metacore-starter-config/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  optimizeDeps: metacoreOptimizeDeps(),
+  optimizeDeps: metacoreOptimizeDeps,
   resolve: {
     alias: { '@': new URL('./src', import.meta.url).pathname },
   },
 })
 ```
 
-`metacoreOptimizeDeps()` devuelve un objeto Vite `OptimizeDepsOptions` que incluye cada package `@asteby/metacore-*` y fuerza React a una sola instancia. Si también usás `defineMetacoreConfig()` del mismo package, esto se aplica por vos.
+`metacoreOptimizeDeps` es un objeto Vite `DepOptimizationOptions` ya armado (no una función — pasalo directo) que incluye cada package `@asteby/metacore-*` para que se pre-bundleen en una sola instancia de React. La lista cruda también se exporta como `metacoreOptimizeDepsInclude` si necesitás mergearla en un `optimizeDeps.include` existente. Si usás `defineMetacoreConfig()` del mismo package, esto se aplica por vos.
 
 ## 6. Tailwind 4 — directivas `@source`
 
@@ -241,7 +241,7 @@ Turbo buildea primero los packages upstream del SDK, después la app.
 - run: pnpm build
 ```
 
-Un workflow de GitHub Actions de un repo host que buildea el SDK antes de instalar la app es una referencia funcional para este patrón.
+Una app host que buildea el SDK desde un clon hermano en CI es una referencia funcional para este patrón.
 
 ## 8. Template de Renovate
 
@@ -276,4 +276,4 @@ O para un canal pre-release:
 pnpm up "@asteby/metacore-*@next"
 ```
 
-Ver [`publishing.md`](./publishing) para la semántica de canales.
+Ver [`PUBLISHING.md`](./publishing) para la semántica de canales.

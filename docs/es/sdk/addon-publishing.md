@@ -1,148 +1,169 @@
 # Publicación
 
-Cada addon que corre en producción pasa por el mismo pipeline:
+Cada addon que corre en producción pasa por el mismo pipeline real:
 
 ```
-  build local  →  firma  →  upload  →  review  →  publicado
+  build tarball  →  firma (ed25519)  →  metacore publish  →  scan  →  review  →  catálogo
 ```
 
-Este documento cubre cada paso.
+Este documento describe el flujo **real** implementado por
+`hub/backend/cmd/metacore/publish.go` (el CLI) y
+`hub/backend/internal/api/publish.go` + `hub/backend/internal/scanner`
+(el lado servidor) — no uno hipotético. Si este doc y el código alguna vez
+no coinciden, confiá en el código.
 
-## 1. Preparar un par de claves Ed25519
+## 1. Registrar una identidad de developer + keypair
 
 ```bash
-metacore keygen --out dev
-# wrote dev.pem (private, 0600) and dev.pub (public)
+metacore keys init
+# escribe un keypair ed25519 bajo tu directorio de config de metacore
+metacore keys show
+# imprime la public key para entregarle a un admin del hub
 ```
 
-- `dev.pem` es Ed25519 en PKCS#8 PEM. Mantenelo fuera de git. Usá un
-  password manager o un token de hardware (`ssh-keygen -t ed25519 -N ''` + un wrapper)
-  para identidades de firma de producción.
-- `dev.pub` es la clave pública. Registrala en
-  `<your-hub-url>/developers → API keys`. Podés registrar múltiples claves públicas
-  por cuenta de developer (dev, CI, release engineer).
+Registrá la public key con el hub (un admin te agrega como developer);
+recibís un `developer_id` (UUID). La auth para el request de publish en sí es
+**una de estas dos**:
 
-El marketplace verifica cada upload contra el conjunto de claves públicas registradas.
-Bundles firmados con una clave no registrada son rechazados antes del review.
+- `Authorization: Bearer <JWT>` — logueate a través del portal de developer
+  del hub, pasá el token vía `--token` o `METACORE_TOKEN`; **o**
+- `X-Developer-Key: <shared key>` — el path legacy (`--developer-key` /
+  `METACORE_DEVELOPER_KEY`), pedile a un admin del hub `MARKETPLACE_DEV_KEY`.
 
-## 2. Build
+## 2. Publicar
 
 ```bash
-metacore build --strict --sign dev.pem
-# built mi-addon-1.0.0.tar.gz (2 migrations, 14 frontend files, 1 backend files, target=wasm)
-# wrote mi-addon-1.0.0.tar.gz.sig
+cd my-addon/        # directorio con manifest.json en su raíz
+metacore publish \
+  --hub https://hub.asteby.com \
+  --developer-id "$METACORE_DEVELOPER_ID" \
+  --token "$METACORE_TOKEN" \
+  --key ~/.metacore/keys/dev.pem
 ```
 
-`--strict` falla en warnings. Es obligatorio para el step de review.
+`metacore publish` (ver `hub/backend/cmd/metacore/publish.go`) hace cinco
+cosas, en orden:
 
-`--sign` encadena `metacore sign` después del build, produciendo
-`<bundle>.sig` al lado del tarball. También podés firmar por separado:
+1. **Carga** el addon desde disco (manifest + cualquier payload de
+   migrations/frontend/backend referenciado por él).
+2. **Valida** con `manifest.Validate(manifest.APIVersion)` — el mismo
+   validador v3 que corre el kernel, del lado cliente, así un manifest roto
+   falla rápido en vez de ir y volver al hub.
+3. **Empaqueta** en un `tar.gz` determinístico (`kernel/bundle.Write`).
+4. **Firma**: `sha256(tarball)`, después `ed25519.Sign(priv, digest)` — la
+   firma viaja como un string **hex-encoded**, no como un archivo `.sig`
+   separado.
+5. **POST** `multipart/form-data` a `<hub>/v1/addons`:
 
-```bash
-metacore sign --key dev.pem mi-addon-1.0.0.tar.gz
-```
+   | Parte | Contenido |
+   |---|---|
+   | `bundle` | el tarball, como file part |
+   | `signature` | hex(firma ed25519 sobre sha256(bundle)) |
+   | `developer_id` | tu UUID registrado |
+   | `Authorization: Bearer <jwt>` **o** `X-Developer-Key: <key>` | header, no un form field |
 
-La firma es una firma Ed25519 sobre SHA-256 de los bytes del bundle.
+Usá `--dry-run` para empaquetar + firmar localmente sin subir (útil en CI
+para fallar rápido ante un problema de manifest antes de tocar la red).
 
-## 3. Upload
+El servidor enforcea un cap de **32 MiB** sobre todo el bundle multipart
+(`maxBundleSize` en `publish.go`).
 
-```bash
-curl -X POST https://your-hub.example.com/v1/addons \
-  -H "X-Developer-Key: $METACORE_DEV_KEY" \
-  -F bundle=@mi-addon-1.0.0.tar.gz \
-  -F signature=@mi-addon-1.0.0.tar.gz.sig
-```
+## 3. Qué pasa del lado servidor
 
-Respuesta:
+`handlePublish` (`hub/backend/internal/api/publish.go`):
 
-```json
-{
-  "id": "ad_01HK...",
-  "status": "pending",
-  "addon_key": "mi-addon",
-  "version": "1.0.0",
-  "uploaded_at": "2026-04-15T12:00:00Z"
-}
-```
+1. Verifica la firma contra la(s) public key(s) registrada(s) del developer.
+2. Re-parsea y re-valida el bundle/manifest del lado servidor (nunca confía
+   solo en la validación del cliente).
+3. Corre `scanner.Scan` contra cualquier módulo WASM en el bundle (ver
+   abajo).
+4. Setea `review_status`:
+   - **`pending_review`** — el default para todos.
+   - **`auto_approved`** — el fast path del scanner lo cambia acá cuando el
+     publish es *demostrablemente seguro* (pasa cada check automatizado sin
+     warnings que necesiten una mirada humana).
+   - **Override first-party**: developers cuyo UUID está en
+     `HUB_FIRST_PARTY_DEVELOPER_IDS` (las cuentas de developer propias de
+     la plataforma) quedan estampados `publisher_tier: "official"` y sus
+     publishes **se saltean la cola de review por completo — incluyendo su
+     primer publish** (`isFirstParty` en `router.go`; revisar tus propios
+     addons first-party se trata como teatro, no como un control de
+     seguridad).
+   Trackeá el status en `<hub>/admin/submissions`; nada aparece en el
+   catálogo público hasta llegar a `approved`/`auto_approved`.
 
-Límites de upload: 50 MB por bundle, 200 archivos en `frontend/`, 25 migraciones.
+## 4. El scanner (`hub/backend/internal/scanner`)
 
-## 4. Flujo de review
+Corre sincrónicamente dentro del request de publish (milisegundos de un
+solo dígito para un addon típico) contra cualquier módulo `.wasm` que traiga
+el bundle:
 
-```
-pending
-   │
-   ├──► changes_requested  ── email con diff accionable, vos resubís
-   │
-   ├──► approved           ── bloque firmado por marketplace agregado a manifest.signature
-   │
-   └──► published          ── live en <your-hub-url>/addons/<key>
-```
+- **Magic + version bytes** del binario WASM se chequean.
+- **Import allowlist** — cada import de host que el módulo pide tiene que
+  estar en la whitelist del ABI v1 (`log`, `env_get`,
+  `http_fetch`/`http_request`, `event_emit`, `db_query`, `db_exec`,
+  `connector_get`, `data_mutate`, `data_query`, …, según
+  `metacore-kernel/docs/abi/v1.md`). Cualquier cosa fuera de eso — syscalls
+  raw de filesystem/network WASI, módulos de host desconocidos — es
+  **rechazada**; de todas formas nunca correría en el kernel.
+  - `http_request` y `connector_get` se tratan como **imports reales del
+    ABI, gateados**, no como string-match: si el módulo importa cualquiera
+    de los dos, el manifest **tiene que** declarar la capability
+    correspondiente (`http:fetch` / `connector:read` respectivamente) o el
+    publish se rechaza. Este es un check estático sobre la sección de
+    imports del binario compilado, así que un manifest que "se olvida" la
+    capability no puede colarse por omisión.
+- **Export check** — requiere al menos un entry point: cada key en
+  `manifest.backend.exports`, o un export de lifecycle reconocido
+  (`_start`, `handle_request`). Sin entry point = código muerto = rechazado.
+- **Cap de tamaño**: 10 MiB sobre el artefacto `.wasm` en sí (separado del
+  cap de 32 MiB de todo el bundle).
+- **Solo warnings (nunca bloquean)**: URLs hardcodeadas cuyo host no está
+  cubierto por una capability `http:fetch` declarada; densidad sospechosa
+  de exports (olor a ofuscación).
+- **Instanciación dry-run** contra un host NULL (un runtime `wazero` cuyos
+  imports `metacore_host` devuelven todos `0` como stub). Un módulo que
+  panickea al momento de link o durante una llamada opcional a `_start` es
+  rechazado — también crashearía con tráfico real.
 
-El SLA típico de review es 3 días hábiles. Los cambios de status disparan email a la
-cuenta de developer y aparecen en `<your-hub-url>/developers/submissions`.
-
-### Qué chequea el review
-
-- La firma verifica contra una clave pública registrada.
-- `metacore validate` pasa (re-corrido server-side).
-- Sin capability sin `reason`.
-- Sin `db:write` sobre tablas core para categorías que no sean finance/operations.
-- Sin target `http:fetch` que evada la regla anti-wildcard.
-- Las migraciones SQL parsean, no contienen `DROP DATABASE`, `GRANT`, funciones
-  de superuser, ni `pg_read_server_files`.
-- La integridad SRI del frontend matchea el `integrity` declarado.
-- El readme + screenshots renderizan.
-- El field license está populado; identificador SPDX preferido.
+El `ScanReport` se persiste (`AddonVersion.scan_report` jsonb) y se
+renderiza en la UI de review de admin.
 
 ## 5. Versionado
 
-Semver estricto.
+Semver estricto, chequeado por el validador del manifest
+(`metadata.version`). No hay una policy de tamaño de bump enforced por el
+servidor más allá de eso hoy — tratá esto como convención, no como un gate
+automatizado:
 
 | Cambio | Bump |
 |---|---|
-| Nueva tool / acción / field de settings | minor |
-| Nueva migración agregando una columna nullable | minor |
-| Sacar una columna / renombrar una key | major |
-| Bugfix sin cambio de schema | patch |
+| Nueva action / setting / connector | minor |
+| Nueva columna nullable, nuevo modelo | minor |
+| Sacar una columna, renombrar una key, romper la forma de un field del manifest | major |
+| Bugfix, sin cambio de schema/contrato | patch |
 
-El marketplace mantiene cada versión aprobada. Las instalaciones se pinean a una
-versión específica y toman upgrades solo cuando el admin clickea *Update*.
+Cada versión aprobada se retiene; las instalaciones pinnean a una versión
+específica y solo avanzan cuando el admin de la org clickea Update en ops.
 
-Yankear una versión (issue de seguridad): mandá email a `security@asteby.com` o usá el
-dashboard de developer. Los tenants instalados reciben un banner in-product.
+## 6. Keys, tokens, secrets
 
-## 6. Qué se rechaza
+- El **keypair ed25519** (`metacore keys init`) firma bundles — es tu
+  identidad de publisher, no una credencial bearer.
+- **`developer_id`** es el UUID que un admin del hub registra para vos
+  (mapea tu pubkey a una cuenta).
+- **`METACORE_TOKEN`** (JWT) o **`METACORE_DEVELOPER_KEY`** (shared key
+  legacy) autentica el request de upload en sí — separado de la firma.
+- Nunca pongas secrets en el manifest. Usá `settings[].secret: true`
+  (settings del host) o `connectors[].credentials[].type: "secret"`
+  (credenciales por org) — ambos se guardan encriptados del lado servidor,
+  nunca vuelven en un GET. Ver
+  [`manifest-spec.md` §14](./manifest-spec#14-settings) y
+  [§8](./manifest-spec#8-connectors).
 
-Rechazos rápidos (mismo día, automatizados):
+## Ver también
 
-- Wildcards que violan [capabilities.md](./capabilities).
-- Falta `capabilities` para una llamada saliente detectada.
-- SQL en migraciones que parece malicioso (`COPY FROM PROGRAM`, etc.).
-- Mismatch de firma.
-- Rango de kernel incompatible con producción actual (`>=1.x`).
-
-Rechazos lentos (review humano):
-
-- `description`, `category`, o screenshots engañosos.
-- Dependencia en un modelo core deprecado.
-- Violaciones de accesibilidad en el bundle de frontend.
-
-## 7. Claves, tokens, y secretos
-
-- `$METACORE_DEV_KEY` es un personal access token emitido por el hub. Rotalo
-  trimestralmente. *No* es la clave Ed25519.
-- Nunca pongas secretos (tokens de API, credenciales OAuth) en el manifest. Usá
-  `settings[].secret: true` y dejá que el host los inyecte vía `env_get` en
-  runtime.
-
-## 8. Instalar una pre-release localmente
-
-Para entornos de staging, subí con `?channel=beta`:
-
-```bash
-curl -X POST "https://your-hub.example.com/v1/addons?channel=beta" ...
-```
-
-Los bundles beta son visibles solo para organizaciones que opten en desde el
-dashboard de developer — útil para clientes privados y dogfooding.
+- [`manifest-spec.md`](./manifest-spec) — la referencia completa de campos del manifest v3.
+- [`addon-cookbook.md`](./addon-cookbook) — recetas end-to-end.
+- [`wasm-abi.md`](./wasm-abi) — el contrato guest/host de WASM contra el que enforcea el scanner.
+- [`capabilities.md`](./capabilities) — el catálogo de `kind` para `capabilities[]`.

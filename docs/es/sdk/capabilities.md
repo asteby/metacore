@@ -10,7 +10,7 @@ publicación al event bus — se chequea contra una policy `Capabilities` compil
 
 Implementación: [`kernel/security/context.go`](https://github.com/asteby/metacore-kernel/blob/main/security/context.go).
 Validación: [`kernel/manifest/validate.go`](https://github.com/asteby/metacore-kernel/blob/main/manifest/validate.go).
-Para el modelo de enforcement del lado kernel ver [Permisos del kernel](/es/kernel/permissions).
+Para el modelo de enforcement del lado kernel ver [`kernel/docs/permissions.md`](https://github.com/asteby/metacore-kernel/blob/main/docs/permissions.md).
 
 ## Tabla de contenidos
 
@@ -33,13 +33,14 @@ Declarado en el manifest:
   { "kind": "http:fetch",      "target": "api.stripe.com", "reason": "Process payments" },
   { "kind": "http:fetch",      "target": "*.slack.com" },
   { "kind": "event:emit",      "target": "sale.created" },
-  { "kind": "event:subscribe", "target": "invoice.stamped" }
+  { "kind": "event:subscribe", "target": "invoice.stamped" },
+  { "kind": "connector:read",  "target": "mercadopago", "reason": "Read the org's credentials" }
 ]
 ```
 
 | Field | Requerido | Notas |
 |---|---|---|
-| `kind` | sí | Una de `db:read`, `db:write`, `http:fetch`, `event:emit`, `event:subscribe`. Debe contener un separador `:`. |
+| `kind` | sí | Una de `db:read`, `db:write`, `http:fetch`, `event:emit`, `event:subscribe`, `connector:read`. Debe contener un separador `:`. |
 | `target` | sí | Pattern específico al kind (ver abajo). |
 | `reason` | recomendado | Mostrado en el prompt de instalación. Addons con razones vacías fallan los gates `--strict`. |
 
@@ -106,6 +107,22 @@ que accidentalmente liste `*.internal` igual no puede llegar a IMDS.
 | `"ticket.*"` | Cualquier topic bajo `ticket.`. |
 | `"*"` | Todos los topics (permitido para eventos; no para DB/HTTP). |
 
+### `connector:read`
+
+Le da a un handler WASM acceso a `connector_get(key)` para uno de los
+`connectors[]` declarados por el addon — resolviendo las **credenciales
+guardadas y encriptadas de la org** para ese connector (un access token, una
+API key) para que el handler pueda autenticar una llamada saliente. El target
+es la `key` del connector (ej. `"mercadopago"`), que matchea
+`Manifest.connectors[].key` ([manifest-spec.md §8](./manifest-spec#8-connectors)).
+Casi siempre se declara junto a una capability `http:fetch` para la misma API
+de terceros — leer la credencial no sirve de nada sin permiso para llamar al
+host contra el que autentica. El scanner de publish-time del hub trata
+`connector_get` como un import WASM real, detectado estáticamente (no un
+match de texto): un módulo compilado que lo importa sin la capability
+`connector:read` correspondiente es rechazado directamente, el mismo trato
+que recibe `http_request`.
+
 ## 4. Declarando capabilities
 
 Mantené la lista mínima. Al instalar, el host muestra el `reason` de cada capability
@@ -119,6 +136,8 @@ Checklist:
 3. ¿El addon hace llamadas HTTP salientes? → declará `http:fetch` por host.
 4. ¿El addon publica al event bus? → declará `event:emit` por topic.
 5. ¿El addon se suscribe? → declará `event:subscribe`.
+6. ¿Un handler WASM lee una credencial de connector vía `connector_get`? →
+   declará `connector:read` para la key de ese connector.
 
 ## 5. Enforcement en runtime
 
@@ -163,11 +182,11 @@ import { CapabilityGate, CapabilityProvider } from '@asteby/metacore-runtime-rea
 
 El gate es **puramente cosmético** — nunca confíes en él para seguridad. El host
 siempre debe validar la misma capability server-side. Ver
-[`dynamic-ui.md`](./dynamic-ui.md#capability-gates) para la superficie de props
+[`dynamic-ui.md`](./dynamic-ui#capability-gates) para la superficie de props
 completa.
 
 ## Ver también
 
-- [`manifest-spec.md`](./manifest-spec.md#7-capabilities) — declarando `capabilities[]` en el manifest.
+- [`manifest-spec.md`](./manifest-spec#7-capabilities) — declarando `capabilities[]` en el manifest.
 - [`dynamic-ui.md`](./dynamic-ui) — `<CapabilityGate>` y gating en runtime.
 - [`addon-publishing.md`](./addon-publishing) — cómo capabilities sin scope afectan el review del marketplace.

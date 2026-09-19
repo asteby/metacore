@@ -567,7 +567,8 @@ chrome. `permission` gates visibility; default is derived as
 ```json
 "documents": [{
   "key": "remision", "model": "SalesOrder",
-  "template": "templates/remision.html", "paper": "ticket80"
+  "template": "templates/remision.html", "paper": "ticket80",
+  "label": "Ticket de venta"
 }]
 ```
 
@@ -575,6 +576,9 @@ Binds a bundle-relative HTML template to a model so the host renders a
 per-record PDF at `GET /api/data/:model/:id/documents/:key.pdf`, hydrated
 with `{{record.<col>}}`, `{{org.branding.<field>}}`, `{{line_items}}`,
 `{{now}}`. `paper`: `A4`|`letter`|`ticket80` (80mm POS receipt roll).
+Optional `label` is the human title in the host **Plantillas** catalog
+(org override of the HTML without shipping a new addon version). The host
+resolves `org overlay → addon default`.
 
 ### 7.5 `notifications[]`
 

@@ -193,9 +193,12 @@ rich creation flow (a document with line items, a wizard) — see
 [manifest-spec.md §7.2](./manifest-spec#72-actions--placement-federated-modals-wizards).
 
 When the user clicks the action, the host's `<ActionModalDispatcher>` looks
-the slug up in the `Registry`, falls back to the generic field-driven dialog
-if no custom component is registered, and otherwise mounts the registered
-component with:
+up a registered action component for `(model, action.key)`. If `modal` is
+set and **no** custom component is registered, the dispatcher surfaces an
+**error dialog** — it does **not** fall back to the generic confirm or
+field-driven dialog. A silent generic fallback hid broken federated remotes
+(users thought the flow was intentional). Hosts must warm/load the addon
+remote before click so the component is registered.
 
 ```ts
 {

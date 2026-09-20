@@ -529,7 +529,10 @@ Build with TinyGo per [`wasm-abi.md`](./wasm-abi#5-building). Prefer
 WASM over a webhook when the logic needs to run in-process with low
 latency and no outbound network dependency of its own; prefer a webhook
 when the logic is easier to iterate on outside the sandbox or needs a
-runtime WASM can't target.
+runtime WASM can't target. Before you ship, skim
+[`wasm-guest-cold-start.md`](./wasm-guest-cold-start) (reactor build,
+no I/O in `_initialize`, size checklist) so the module does not slow host
+boot when many addons are installed.
 
 ## How do I read/write a row from a WASM handler without raw SQL?
 

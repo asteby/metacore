@@ -158,6 +158,31 @@ The list grows as `app-providers` and friends evolve — do not hand-roll it
 in an addon's `vite.config.ts`; always go through the helper so a bump to
 the shared-config package propagates without touching every addon.
 
+## CI size budgets (fail before hub publish)
+
+Hub publish rejects remotes over **512 KiB** `remoteEntry.js` or **4 MiB**
+total `frontend/` (`validateFrontendBudgets`). Catch the same limits in the
+addon Vite build:
+
+```ts
+import { federation } from '@module-federation/vite'
+import {
+  metacoreFederationShared,
+  metacoreFederationBudgetPlugin,
+} from '@asteby/metacore-starter-config/vite'
+
+export default defineConfig({
+  plugins: [
+    federation(metacoreFederationShared({ host: 'metacore_tickets', exposes: { … } })),
+    metacoreFederationBudgetPlugin(),
+  ],
+})
+```
+
+`metacoreFederationShared()` also throws if a mandatory singleton is missing
+or overridden to `singleton: false`. Helpers for scripts/CI without Vite:
+`assertMetacoreFederationShared`, `assertFederationDistBudgets`.
+
 ## Pre-bundling SDK packages locally
 
 When the addon is linked via `file:` / `workspace:` (development), Vite

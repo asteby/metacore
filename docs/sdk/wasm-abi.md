@@ -140,6 +140,10 @@ func main() {} // requerido por tinygo
 
 ## 5. Building
 
+> **Cold start:** keep `_initialize` / `init` free of I/O, build a **reactor**
+> (not a wasip1 command that exits), and keep the artifact small — see
+> [`wasm-guest-cold-start.md`](./wasm-guest-cold-start).
+
 ### With TinyGo directly
 
 ```bash

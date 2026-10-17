@@ -507,6 +507,8 @@ federated action modals.
 | `"table"` | A toolbar button at the page level, no record context. |
 | `"create"` | A toolbar button that **replaces** the generic "create" button — for addons shipping a custom create experience (e.g. a journal entry with debit/credit lines). Opens with an empty record; the host suppresses its default create affordance. |
 
+A toolbar action whose `placement` stays `"table"` can still replace the generic button by setting `replaces_create: true`. The host may also set `create_mode: "hidden" | "action"` on the table metadata, or `ModelExtension.createMode` / `primaryActionKey` without a kernel change. `resolveListPrimaryAction` (exported from the runtime) is the one decision: at most one control carries `data-primary="true"`. If two actions claim the primary slot, the first one — or `primaryActionKey` — wins and the rest render as secondary. The ops shell (`/m/$model`) must call the same function; otherwise it paints its own Crear next to the SDK's.
+
 An action's UI comes from **one of two mutually-reinforcing surfaces**:
 
 - **Declarative form** — `fields[]` (flat) or `steps[]` (a validated
@@ -567,7 +569,8 @@ chrome. `permission` gates visibility; default is derived as
 ```json
 "documents": [{
   "key": "remision", "model": "SalesOrder",
-  "template": "templates/remision.html", "paper": "ticket80"
+  "template": "templates/remision.html", "paper": "ticket80",
+  "label": "Ticket de venta"
 }]
 ```
 
@@ -575,6 +578,9 @@ Binds a bundle-relative HTML template to a model so the host renders a
 per-record PDF at `GET /api/data/:model/:id/documents/:key.pdf`, hydrated
 with `{{record.<col>}}`, `{{org.branding.<field>}}`, `{{line_items}}`,
 `{{now}}`. `paper`: `A4`|`letter`|`ticket80` (80mm POS receipt roll).
+Optional `label` is the human title in the host **Plantillas** catalog
+(org override of the HTML without shipping a new addon version). The host
+resolves `org overlay → addon default`.
 
 ### 7.5 `notifications[]`
 

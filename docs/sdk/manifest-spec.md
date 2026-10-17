@@ -242,6 +242,7 @@ code):
 | `options` | **Either** a static array `[{value,label,icon?,color?,image?}]` **or** an object form (dependent picker): `{source, filter_by, value, label, label_ref, description}` — a `dynamic_select` scoped by a sibling field (`depends_on`), with the label resolved from a related model. The two shapes are mutually exclusive on one column. |
 | `options_source` | Names a **host-registered provider key** (e.g. `"registered_models"`) resolved at metadata-serve time — an escape hatch for host-computed option lists the kernel itself doesn't implement. |
 | `depends_on` | Sibling column whose value supplies the cascade filter for a dependent `options` picker. |
+| `option_filter` | Hides options of a `ref` / `dynamic_select` picker (e.g. cancelled invoices in a payments selector). One rule or a list (all must pass): `{ "field": "status", "not_in": ["cancelada"] }`. Operators: `equals`, `not_equals`, `in`, `not_in` (camelCase aliases `notEquals`/`notIn` accepted). It is applied **client-side** over the options the `/api/options` endpoint returns, so that endpoint must include the tested column in each option; comparison is trimmed and case-insensitive, an option lacking the column is kept by the negative operators and dropped by `equals`/`in`, and the current selection is never hidden. Absent → every option is listed. |
 | `scan` | `true` renders a camera barcode-scan button on the field (SKU-style inputs). |
 | `section` | Binds the field into a `form_layout` section/step (see [§5.5](#55-form_layout-and-columnsectionvisible_when)). |
 | `visible_when` | `{field, equals}` or `{field, in:[...]}` — conditionally hides the field in the create/edit modal based on a sibling field's live value. A hidden field never gates submit. |
@@ -507,12 +508,14 @@ federated action modals.
 | `"table"` | A toolbar button at the page level, no record context. |
 | `"create"` | A toolbar button that **replaces** the generic "create" button — for addons shipping a custom create experience (e.g. a journal entry with debit/credit lines). Opens with an empty record; the host suppresses its default create affordance. |
 
+A toolbar action whose `placement` stays `"table"` can still replace the generic button by setting `replaces_create: true`. The host may also set `create_mode: "hidden" | "action"` on the table metadata, or `ModelExtension.createMode` / `primaryActionKey` without a kernel change. `resolveListPrimaryAction` (exported from the runtime) is the one decision: at most one control carries `data-primary="true"`. If two actions claim the primary slot, the first one — or `primaryActionKey` — wins and the rest render as secondary. The ops shell (`/m/$model`) must call the same function; otherwise it paints its own Crear next to the SDK's.
+
 An action's UI comes from **one of two mutually-reinforcing surfaces**:
 
 - **Declarative form** — `fields[]` (flat) or `steps[]` (a validated
   multi-step wizard, mutually exclusive with `fields[]`). Each field is an
   `ActionField`: `type`, `widget`, `ref`/`options`/`options_source` (same
-  picker vocabulary as a column), `visible_when`, `scan`, `depends_on`, plus
+  picker vocabulary as a column), `visible_when`, `scan`, `depends_on`, `option_filter`, plus
   line-item support (`type: "array"` + `item_fields[]`, `lock_rows` to
   forbid adding/removing rows, `total`/`balance` for a summed footer with a
   balanced/out-of-balance indicator — e.g. Σdebit == Σcredit), and upload
@@ -567,7 +570,8 @@ chrome. `permission` gates visibility; default is derived as
 ```json
 "documents": [{
   "key": "remision", "model": "SalesOrder",
-  "template": "templates/remision.html", "paper": "ticket80"
+  "template": "templates/remision.html", "paper": "ticket80",
+  "label": "Ticket de venta"
 }]
 ```
 
@@ -575,6 +579,9 @@ Binds a bundle-relative HTML template to a model so the host renders a
 per-record PDF at `GET /api/data/:model/:id/documents/:key.pdf`, hydrated
 with `{{record.<col>}}`, `{{org.branding.<field>}}`, `{{line_items}}`,
 `{{now}}`. `paper`: `A4`|`letter`|`ticket80` (80mm POS receipt roll).
+Optional `label` is the human title in the host **Plantillas** catalog
+(org override of the HTML without shipping a new addon version). The host
+resolves `org overlay → addon default`.
 
 ### 7.5 `notifications[]`
 

@@ -152,7 +152,7 @@ because React is `singleton: true` in the federation config — see
 | Kernel version | `AddonAPI.kernelVersion` | argument to `register(api)` |
 | Telemetry / logger | `AddonAPI.telemetry`, `AddonAPI.log` | argument to `register(api)` |
 | Current user (auth) | `@asteby/metacore-auth` → `useAuth()`, `useAuthStore()` | hook |
-| Access token | `useAuthStore.getState().auth.accessToken` | store |
+| Access token | `useAuthStore.getState().auth.accessToken` — **never in federated pages**: use `useHostApi()` | store |
 | Tenant / org | `useAuthStore().auth.user.organization_id`, `.organization_name` | store |
 | Org config (locale, fiscal, currency) | `@asteby/metacore-app-providers` → `useOrgConfig()` | hook |
 | Platform branding (logo, primary, accent) | `@asteby/metacore-app-providers` → `usePlatformConfig()` | hook |
@@ -169,6 +169,9 @@ because React is `singleton: true` in the federation config — see
 | Dynamic UI (tables, forms, CRUD pages) | `@asteby/metacore-runtime-react` → `<DynamicTable/>`, `<DynamicForm/>`, `<DynamicCRUDPage/>` | components |
 | UI primitives (Dialog, Button, DataTable) | `@asteby/metacore-ui/*` subpaths | components |
 | Capability gate | `@asteby/metacore-runtime-react` → `<CapabilityGate/>`, `useCapabilities()` | hook / component |
+| Federated page: host API (no token exposed) | `@asteby/metacore-runtime-react` → `useHostApi()` | hook (inside `<AddonPageHost>`) |
+| Federated page: org, user, branch, locale | `@asteby/metacore-runtime-react` → `useHostContext()` | hook |
+| Federated page: navigation, breadcrumbs, header | `useAddonNavigate()`, `useAddonSearchParams()`, `useBreadcrumbs()`, `usePageChrome()` | hooks — see [`full-page-federation.md`](./full-page-federation) |
 
 ### Auth
 
@@ -677,7 +680,8 @@ doc and should land as separate RFCs / feature PRs.
 
 - [`addon-publishing.md`](./addon-publishing) — how to publish an addon to the Hub.
 - [`addon-cookbook.md`](./addon-cookbook) — pattern-by-pattern recipes for the `./plugin` shape.
-- [`full-page-federation.md`](./full-page-federation) — `./pages/<slug>` chromeless route convention.
+- [`full-page-federation.md`](./full-page-federation) — federated pages (`frontend.pages[]`): `definePage`, host hooks (`useHostApi`, `useHostContext`, `useAddonNavigate`, `useBreadcrumbs`, `usePageChrome`).
+- [`declarative-views.md`](./declarative-views) — map/timeline/calendar/chart/split views and detail panels.
 - [`manifest-spec.md`](./manifest-spec) — manifest fields the bridge reads from.
 - [`capabilities.md`](./capabilities) — capability gates enforced before bridge access.
 - [`audits/2026-05-04-mf-shared-deps.md`](./audits/2026-05-04-mf-shared-deps.md) — per-package singleton rationale.

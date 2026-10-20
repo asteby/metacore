@@ -117,7 +117,7 @@ The fix is either of:
    `shareScope?`, `packagePath?`, `generate?`) if you have a structural
    reason not to use the helper. This is what the helper does internally.
 
-## The singleton list (currently eleven)
+## The singleton list (currently thirteen)
 
 `metacoreFederationShared()` declares the following packages as
 `{ singleton: true }` (`METACORE_FEDERATION_SINGLETONS` in
@@ -136,6 +136,10 @@ single source of truth; this list must match it exactly):
 - `@asteby/metacore-app-providers`
 - `@asteby/metacore-theme`
 - `@asteby/metacore-auth`
+- `@tanstack/react-router` — one router: federated pages navigate through the
+  host's router (`useAddonNavigate`). Remotes (`role: 'remote'`, the default
+  when `exposes` is set) declare it with `import: false`, so an addon that does
+  not install the router still builds and never ships a copy.
 
 **`@tanstack/react-query` is mandatory.** It carries a React context (the
 `QueryClient`); the host renders `<QueryClientProvider>` and the shared
@@ -158,6 +162,64 @@ The list grows as `app-providers` and friends evolve — do not hand-roll it
 in an addon's `vite.config.ts`; always go through the helper so a bump to
 the shared-config package propagates without touching every addon.
 
+## Lazy page shares (maps and charts)
+
+Federated pages (`manifest.frontend.pages[]`, see
+[`full-page-federation.md`](./full-page-federation)) may import heavy UI
+libraries **only** from this closed set, which the kernel mirrors in
+`pages[].shares` (`v3.PageShares`):
+
+| Share | Host capability |
+|---|---|
+| `@asteby/metacore-maps`, `maplibre-gl` | `ui.maps` |
+| `@asteby/metacore-charts`, `recharts` | `ui.charts` |
+
+`METACORE_PAGE_SHARES` declares them `singleton: true, eager: false` (the host
+downloads them only when a page imports them, never in the shell) and, in
+remotes, `import: false` (the remote never bundles a fallback; installation
+already checked the host capability). Anything else fails the build.
+
+```ts
+// host (ops)
+federation(metacoreFederationShared({ host: 'metacore_ops', role: 'host', pageShares: [...METACORE_PAGE_SHARES] }))
+// addon: shares come from manifest.json; every pages[].expose must be in exposes
+federation(metacoreFederationShared({ host: 'metacore_shipping', exposes, manifest: '../manifest.json' }))
+```
+
+## Per-page budget
+
+`metacorePageBudgetPlugin({ manifest, exposes })` measures each expose on the
+real chunk graph — gzip of its static closure, shares and the MF runtime
+excluded; lazy `import()` code is reported apart — and fails the build when a
+page exceeds its `budget_kb` (default and ceiling **150 KB**). It writes
+`dist/metacore-pages.json`, which `metacore build` reads to refuse packing an
+over-budget page (and then stamps `frontend.sdk` and `frontend.integrity`).
+
+## CI size budgets (fail before hub publish)
+
+Hub publish rejects remotes over **512 KiB** `remoteEntry.js` or **4 MiB**
+total `frontend/` (`validateFrontendBudgets`). Catch the same limits in the
+addon Vite build:
+
+```ts
+import { federation } from '@module-federation/vite'
+import {
+  metacoreFederationShared,
+  metacoreFederationBudgetPlugin,
+} from '@asteby/metacore-starter-config/vite'
+
+export default defineConfig({
+  plugins: [
+    federation(metacoreFederationShared({ host: 'metacore_tickets', exposes: { … } })),
+    metacoreFederationBudgetPlugin(),
+  ],
+})
+```
+
+`metacoreFederationShared()` also throws if a mandatory singleton is missing
+or overridden to `singleton: false`. Helpers for scripts/CI without Vite:
+`assertMetacoreFederationShared`, `assertFederationDistBudgets`.
+
 ## Pre-bundling SDK packages locally
 
 When the addon is linked via `file:` / `workspace:` (development), Vite
@@ -171,5 +233,6 @@ browser with bare specifiers and the browser throws
 
 - [`packages/starter-config/README.md`](../packages/starter-config/README.md#module-federation-singletons-metacorefederationshared) — full helper option reference.
 - [`bridge-api.md`](./bridge-api#golden-rules) — golden rules every federated addon must obey.
-- [`full-page-federation.md`](./full-page-federation) — `./pages/<slug>` exposes that take over the viewport; same shared config.
+- [`full-page-federation.md`](./full-page-federation) — federated pages (`frontend.pages[]`, embedded or full screen); same shared config.
+- [`declarative-views.md`](./declarative-views) — `view_type` map/timeline/calendar/chart/split and detail panels: zero JavaScript per addon.
 - [`docs/audits/2026-05-04-mf-shared-deps.md`](./audits/2026-05-04-mf-shared-deps.md) — design rationale for the singleton list.

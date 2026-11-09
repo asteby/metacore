@@ -229,6 +229,48 @@ browser with bare specifiers and the browser throws
 `@asteby/metacore-starter-config/vite` to force pre-bundling — see
 [the starter-config README](../packages/starter-config/README.md#pre-bundling-linked-sdk-packages).
 
+## Hardening a remote: `requireIntegrity` and `timeoutMs`
+
+`loadFederatedAddon(spec, addonKey?, version?, options?)` takes two optional
+policies. Without `options` nothing changes (integrity stays optional, no
+timeout).
+
+```ts
+await loadFederatedAddon(spec, key, undefined, {
+  requireIntegrity: true, // promise rejects if spec.integrity is missing
+  timeoutMs: 8_000,       // promise rejects if the remote does not load in time
+})
+```
+
+`requireIntegrity` is evaluated before the in-memory cache, and the cache key
+includes `integrity`, so an earlier load without it (or with another hash)
+never satisfies a caller that requires one. Limit: if a container with the same
+global name is already registered on `window`, the loader reuses it and does
+not inject a new `<script>`, so SRI only protects the first load of a container.
+On timeout the cache entry is dropped so a retry loads again.
+
+`<AddonSlot>` does not go through `loadFederatedAddon`: it has its own
+`requireIntegrity` / `timeoutMs` (props or `<AddonSlotProvider>`). The
+manifest's `slot.timeout_ms` is clamped to 1000..30000 ms (invalid, 0 or
+negative values fall back to the host timeout). The slot does not read
+`metadata.visibility`, so a host that serves private addons must enable
+`requireIntegrity` itself. Visibility, `permission` and `condition` are
+enforced by the server filtering the manifests it hands to the host.
+
+## Mounting slot contributions: `<AddonSlot>`
+
+`@asteby/metacore-runtime-react` exports `<AddonSlot kind context>`. It renders
+the `contributions.slots[]` of the installed manifests (provided through
+`<AddonSlotProvider manifests sdkVersion onEvent>`) plus the in-process entries
+of the canonical slot store, ordered by `order` ascending and then `priority`
+descending. Each contribution is isolated (ErrorBoundary + Suspense + timeout):
+a remote that throws, hangs, has no integrity (with `requireIntegrity`) or needs
+an incompatible `frontend.sdk` range shows its fallback and emits
+`addon_slot_failed{addon,kind,reason}` through `onEvent`; siblings and the shell
+are untouched. `reason` is one of `timeout | load | render | missing_expose |
+integrity_required | sdk_incompatible`. The exposed module default-exports
+`({ context, props, sdk }) => JSX`.
+
 ## See also
 
 - [`packages/starter-config/README.md`](../packages/starter-config/README.md#module-federation-singletons-metacorefederationshared) — full helper option reference.

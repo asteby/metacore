@@ -3,7 +3,18 @@
 > **TL;DR — Higher `priority` renders first.** This is the canonical contract
 > for every slot/contribution surface in the metacore ecosystem.
 
-The metacore SDK currently ships two parallel slot systems:
+> **Unified.** Both APIs below write to the same canonical store
+> (`slotStore` in `@asteby/metacore-sdk`) and `<AddonSlot kind context>` from
+> `@asteby/metacore-runtime-react` is the single mounting point: it renders
+> manifest contributions and store entries together, ordered by `order`
+> ascending, then `priority` descending (this file's rule), each isolated in an
+> error boundary with a timeout. `<Slot>`, `slotRegistry.register` and
+> `Registry.registerSlot` keep working and are to be treated as **deprecated**
+> in favour of `<AddonSlot>` for one major (the `@deprecated` JSDoc tags land
+> with the follow-up that edits `slot.tsx` / `registry.ts`).
+
+The metacore SDK ships two registration APIs that share that one store (they
+are not parallel lists: `Registry.registerSlot` writes through to `slotStore`):
 
 - `Registry.registerSlot` from `@asteby/metacore-sdk` — consumed via
   `<Slot>` from `@asteby/metacore-sdk/react` (used by `ops` today).

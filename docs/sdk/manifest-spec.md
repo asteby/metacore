@@ -55,6 +55,7 @@ kernel/hub. It is authored as JSON, validated by Go
 - [14. `settings[]`](#14-settings)
 - [15. `signature{}`](#15-signature)
 - [16. `kind: Preset | Theme | ConnectorPack`](#16-kind-preset--theme--connectorpack)
+- [Propuesto (no implementado)](#propuesto-no-implementado)
 
 ## Top-level shape
 
@@ -749,6 +750,27 @@ full publish/sign/verify flow.
 - **`ConnectorPack`** — `connector_pack.providers[]`: standalone credential
   providers (`{key, label, credentials[]}`) not tied to one addon's models.
 
+## Propuesto (no implementado)
+
+> **Not normative.** Nothing below is accepted by the current validator;
+> §2, §7.1 (`target`) and §12 above remain the contract. The design lives in
+> [`rfcs/0001-dueno-y-enchufes-contratos-y-anchors.md`](./rfcs/0001-dueno-y-enchufes-contratos-y-anchors.md)
+> (docs/rfcs/, draft, release train R2-b).
+
+| Proposed key | Where | Replaces / extends |
+|---|---|---|
+| `compatibility.requires[].contract` | §2 | Depend on a contract (`payments.charge@^1`) instead of a provider addon key. |
+| `extension_points.nav_anchors[]` `{key, section, model\|page\|url, order, accepts[], permission, provisional}` | §12 | Domain-named UI seams (`sales.order`, `catalog.product`…) published by the owner; generalizes `slot_kinds`. |
+| `contributions.navigation[].{key, section, order}` | §7.1 | `section` ∈ `home, sales, customers, catalog, operations, finance, communication, insights` (+ `settings`) replaces free-text `target`. |
+| `items[].{key, attach_to, as, fallback, order}` | §7.1 | `as`: `tab\|view\|action\|panel\|filter\|mode\|setting`; `fallback`: `section\|hide`. |
+| Host slot `contract.providers` | §12 | Where `provider` addons appear (they declare no navigation). |
+
+`target` keeps working during the N-1 window (projected to `section`).
+
+`metadata.role`, `contracts[]`, `implements[]`, `extends_addon` and `replaces[]`
+already exist in the kernel v0.321.0 types (`packages/sdk/src/generated/manifest-v3.ts`)
+but are not documented in this spec yet; RFC §3.1 lists their current shape.
+
 ## See also
 
 - [`addon-cookbook.md`](./addon-cookbook) — end-to-end recipes: scaffolding, CRUD, actions, WASM, federation, publishing.
@@ -757,3 +779,4 @@ full publish/sign/verify flow.
 - [`capabilities.md`](./capabilities) — full `kind` catalog for `capabilities[]`.
 - [`federation.md`](./federation), [`full-page-federation.md`](./full-page-federation), [`modals.md`](./modals) — frontend federation contracts.
 - [`dynamic-ui.md`](./dynamic-ui) — how the SDK turns this metadata into a working CRUD UI.
+- [`rfcs/0001-dueno-y-enchufes-contratos-y-anchors.md`](./rfcs/0001-dueno-y-enchufes-contratos-y-anchors.md) — proposed contracts + navigation anchors (not implemented).

@@ -69,6 +69,40 @@ export default defineConfig({
 })
 ```
 
+### Addon that imports only part of the list: `only`
+
+By default the helper declares the whole singleton list. A remote that
+declares a shared package it never imports breaks `loadShare` at runtime
+(`Cannot read properties of undefined (reading 'M_ID')`), so an addon that
+only uses React plus the host UI passes `only`: the result contains exactly
+those canonical singletons (same `singleton` / host-only router
+`import: false` config), nothing else.
+
+```ts
+metacoreFederationShared({
+  host: 'metacore_warehouse',
+  exposes: { './register': './src/register.tsx' },
+  only: ['react', 'react-dom', 'react/jsx-runtime', '@asteby/metacore-runtime-react'],
+  hostProvided: ['@asteby/metacore-ui'], // singleton + import:false (added on top of `only`)
+  extras: ['sonner'],                    // non-canonical package
+  overrides: { react: { requiredVersion: false } },
+})
+```
+
+- `only` is preferred over an `omit` list on purpose: it is explicit and a
+  singleton added to the canonical list later is not pulled into addons that
+  do not use it. There is no `omit`.
+- Names must belong to `METACORE_FEDERATION_SINGLETONS`; anything else throws
+  (non-canonical packages go in `extras` / `extra`).
+- Precedence: `only` picks the canonical base, then manifest/`pageShares`,
+  `extras`, `extra`, `hostProvided` and `overrides` apply on top (so
+  `hostProvided` naming a singleton outside `only` adds it). A mandatory
+  singleton that is declared must still be `singleton: true`.
+- In `overrides`, a property set to `undefined` removes it, e.g.
+  `{ '@tanstack/react-router': { import: undefined } }` drops the canonical
+  `import: false` to match an older hand-written entry.
+- The hand-rolled `shared` guard accepts configs built with `only`.
+
 ### Host (shell consuming addons)
 
 ```ts
@@ -116,6 +150,63 @@ The fix is either of:
    `MetacoreFederationShareConfig` (`singleton?`, `requiredVersion?`,
    `shareScope?`, `packagePath?`, `generate?`) if you have a structural
    reason not to use the helper. This is what the helper does internally.
+
+## Addon `vite.config.ts` checklist (no hand-rolled `shared`, no pwa stub)
+
+```ts
+import { federation } from '@module-federation/vite'
+import {
+  metacoreFederationShared,
+  metacoreFederationPlugin,
+} from '@asteby/metacore-starter-config/vite'
+
+plugins: [
+  federation(
+    metacoreFederationShared({
+      host: 'metacore_<key>',
+      exposes,
+      manifest,
+      // host always provides these: singleton + import:false (no fallback copy)
+      hostProvided: ['@asteby/metacore-ui', '@asteby/metacore-runtime-react'],
+      // relax a version skew with the host
+      overrides: { '@asteby/metacore-runtime-react': { requiredVersion: false } },
+      // singleton extras the addon really imports
+      extras: ['sonner'],
+    })
+  ),
+  metacoreFederationPlugin(),
+]
+```
+
+`metacoreFederationPlugin()` (a) fails the build if the config declares a
+`shared` map by hand (`singleton: true` literals / `federation(` without
+`metacoreFederationShared`; `handRolledShared: 'warn' | 'off'` to relax) and
+(b) aliases `virtual:pwa-register/react` to the stub shipped by the preset, so
+`src/_pwa-register-stub.ts` and its alias can be deleted.
+
+Migrating the existing hand-written maps: every per-addon difference maps to an
+option — `import: false` -> `hostProvided`; `requiredVersion: false` ->
+`overrides`; `sonner` -> `extras`; `react-i18next`/`i18next`/react-query/sdk/
+app-providers/theme/auth are already canonical singletons (ui/runtime-react
+are NOT `import:false` by default, hence `hostProvided`); `lucide-react` is
+intentionally not shared; nothing uses `eager`. `@tanstack/react-router` is
+already a remote `import: false` singleton.
+
+## Tailwind `@source` for SDK packages
+
+Tailwind v4 ignores `node_modules`. Import every SDK package that emits classes
+with one line (generated list, `scripts/gen-tailwind-sources.mjs`, 26 packages):
+
+```css
+@import '@asteby/metacore-theme/sources.css';
+```
+
+Under pnpm that file's relative paths may not reach the app's links; use
+`pnpm exec metacore-tailwind-sources write` (emits app-relative `@source`
+lines into `src/styles/metacore-sources.css`) and
+`metacore-tailwind-sources check` in CI: it fails listing every `@asteby/*`
+dependency of the app with no `@source` coverage. The SDK CI fails when
+`sources.css` is stale (`node scripts/gen-tailwind-sources.mjs --check`).
 
 ## The singleton list (currently thirteen)
 
@@ -228,6 +319,48 @@ browser with bare specifiers and the browser throws
 `Failed to resolve module specifier`. Use `metacoreOptimizeDeps` from
 `@asteby/metacore-starter-config/vite` to force pre-bundling — see
 [the starter-config README](../packages/starter-config/README.md#pre-bundling-linked-sdk-packages).
+
+## Hardening a remote: `requireIntegrity` and `timeoutMs`
+
+`loadFederatedAddon(spec, addonKey?, version?, options?)` takes two optional
+policies. Without `options` nothing changes (integrity stays optional, no
+timeout).
+
+```ts
+await loadFederatedAddon(spec, key, undefined, {
+  requireIntegrity: true, // promise rejects if spec.integrity is missing
+  timeoutMs: 8_000,       // promise rejects if the remote does not load in time
+})
+```
+
+`requireIntegrity` is evaluated before the in-memory cache, and the cache key
+includes `integrity`, so an earlier load without it (or with another hash)
+never satisfies a caller that requires one. Limit: if a container with the same
+global name is already registered on `window`, the loader reuses it and does
+not inject a new `<script>`, so SRI only protects the first load of a container.
+On timeout the cache entry is dropped so a retry loads again.
+
+`<AddonSlot>` does not go through `loadFederatedAddon`: it has its own
+`requireIntegrity` / `timeoutMs` (props or `<AddonSlotProvider>`). The
+manifest's `slot.timeout_ms` is clamped to 1000..30000 ms (invalid, 0 or
+negative values fall back to the host timeout). The slot does not read
+`metadata.visibility`, so a host that serves private addons must enable
+`requireIntegrity` itself. Visibility, `permission` and `condition` are
+enforced by the server filtering the manifests it hands to the host.
+
+## Mounting slot contributions: `<AddonSlot>`
+
+`@asteby/metacore-runtime-react` exports `<AddonSlot kind context>`. It renders
+the `contributions.slots[]` of the installed manifests (provided through
+`<AddonSlotProvider manifests sdkVersion onEvent>`) plus the in-process entries
+of the canonical slot store, ordered by `order` ascending and then `priority`
+descending. Each contribution is isolated (ErrorBoundary + Suspense + timeout):
+a remote that throws, hangs, has no integrity (with `requireIntegrity`) or needs
+an incompatible `frontend.sdk` range shows its fallback and emits
+`addon_slot_failed{addon,kind,reason}` through `onEvent`; siblings and the shell
+are untouched. `reason` is one of `timeout | load | render | missing_expose |
+integrity_required | sdk_incompatible`. The exposed module default-exports
+`({ context, props, sdk }) => JSX`.
 
 ## See also
 
